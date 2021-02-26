@@ -2,20 +2,7 @@
  * (C) Copyright 2008
  * Stefan Roese, DENX Software Engineering, sr@denx.de.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -28,7 +15,8 @@
 #include <asm/mmu.h>
 #include <asm/4xx_pcie.h>
 #include <asm/ppc4xx-gpio.h>
-#include <asm/errno.h>
+#include <linux/errno.h>
+#include <usb.h>
 
 extern flash_info_t flash_info[CONFIG_SYS_MAX_FLASH_BANKS]; /* info for FLASH chips */
 
@@ -75,11 +63,7 @@ u32 ddr_clktr(u32 default_val) {
  */
 static inline int board_fpga_read(int offset)
 {
-	int data;
-
-	data = in_8((void *)(CONFIG_SYS_FPGA_BASE + offset));
-
-	return data;
+	return in_8((void *)(CONFIG_SYS_FPGA_BASE + offset));
 }
 
 static inline void board_fpga_write(int offset, int data)
@@ -201,7 +185,7 @@ int board_early_init_f(void)
 }
 
 #if defined(CONFIG_USB_OHCI_NEW) && defined(CONFIG_SYS_USB_OHCI_BOARD_INIT)
-int usb_board_init(void)
+int board_usb_init(int index, enum usb_init_type init)
 {
 	struct board_bcsr *bcsr_data =
 		(struct board_bcsr *)CONFIG_SYS_BCSR_BASE;
@@ -242,7 +226,7 @@ int usb_board_stop(void)
 	return 0;
 }
 
-int usb_board_init_fail(void)
+int board_usb_cleanup(int index, enum usb_init_type init)
 {
 	return usb_board_stop();
 }
@@ -391,11 +375,7 @@ int board_early_init_r (void)
 	 */
 
 	/* Remap the NOR FLASH to 0xcc00.0000 ... 0xcfff.ffff */
-#if defined(CONFIG_NAND_U_BOOT) || defined(CONFIG_NAND_SPL)
-	mtebc(PB3CR, CONFIG_SYS_FLASH_BASE_PHYS_L | 0xda000);
-#else
 	mtebc(PB0CR, CONFIG_SYS_FLASH_BASE_PHYS_L | 0xda000);
-#endif
 
 	/* Remove TLB entry of boot EBC mapping */
 	remove_tlb(CONFIG_SYS_BOOT_BASE_ADDR, 16 << 20);
@@ -505,10 +485,10 @@ int misc_init_r(void)
 }
 #endif	/* !defined(CONFIG_ARCHES) */
 
-#if defined(CONFIG_OF_LIBFDT) && defined(CONFIG_OF_BOARD_SETUP)
-extern void __ft_board_setup(void *blob, bd_t *bd);
+#ifdef CONFIG_OF_BOARD_SETUP
+extern int __ft_board_setup(void *blob, bd_t *bd);
 
-void ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, bd_t *bd)
 {
 	__ft_board_setup(blob, bd);
 
@@ -531,5 +511,7 @@ void ft_board_setup(void *blob, bd_t *bd)
 		fdt_find_and_setprop(blob, "/plb/sata@bffd1000", "status",
 				     "disabled", sizeof("disabled"), 1);
 	}
+
+	return 0;
 }
-#endif /* defined(CONFIG_OF_LIBFDT) && defined(CONFIG_OF_BOARD_SETUP) */
+#endif /* CONFIG_OF_BOARD_SETUP */

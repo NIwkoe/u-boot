@@ -7,20 +7,7 @@
  * Author: Martin Lundholm <martin.xa.lundholm@stericsson.com>
  * Ported to drivers/mmc/ by: Matt Waddel <matt.waddel@linaro.org>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /* #define DEBUG */
@@ -50,7 +37,7 @@ static int wait_for_command_end(struct mmc *dev, struct mmc_cmd *cmd)
 	writel(statusmask, &host->base->status_clear);
 	if (hoststatus & SDI_STA_CTIMEOUT) {
 		debug("CMD%d time out\n", cmd->cmdidx);
-		return TIMEOUT;
+		return -ETIMEDOUT;
 	} else if ((hoststatus & SDI_STA_CCRCFAIL) &&
 		   (cmd->resp_type & MMC_RSP_CRC)) {
 		printf("CMD%d CRC error\n", cmd->cmdidx);
@@ -288,7 +275,7 @@ static int mmc_host_reset(struct mmc *dev)
 	return 0;
 }
 
-static void host_set_ios(struct mmc *dev)
+static int  host_set_ios(struct mmc *dev)
 {
 	struct pl180_mmc_host *host = dev->priv;
 	u32 sdi_clkcr;
@@ -300,9 +287,9 @@ static void host_set_ios(struct mmc *dev)
 		u32 clkdiv = 0;
 		u32 tmp_clock;
 
-		if (dev->clock >= dev->f_max) {
+		if (dev->clock >= dev->cfg->f_max) {
 			clkdiv = 0;
-			dev->clock = dev->f_max;
+			dev->clock = dev->cfg->f_max;
 		} else {
 			clkdiv = (host->clock_in / dev->clock) - 2;
 		}
@@ -346,7 +333,15 @@ static void host_set_ios(struct mmc *dev)
 
 	writel(sdi_clkcr, &host->base->clock);
 	udelay(CLK_CHANGE_DELAY);
+
+	return 0;
 }
+
+static const struct mmc_ops arm_pl180_mmci_ops = {
+	.send_cmd = host_request,
+	.set_ios = host_set_ios,
+	.init = mmc_host_reset,
+};
 
 /*
  * mmc_host_init - initialize the mmc controller.
@@ -355,15 +350,8 @@ static void host_set_ios(struct mmc *dev)
  */
 int arm_pl180_mmci_init(struct pl180_mmc_host *host)
 {
-	struct mmc *dev;
+	struct mmc *mmc;
 	u32 sdi_u32;
-
-	dev = malloc(sizeof(struct mmc));
-	if (!dev)
-		return -ENOMEM;
-
-	memset(dev, 0, sizeof(struct mmc));
-	dev->priv = host;
 
 	writel(host->pwr_init, &host->base->power);
 	writel(host->clkdiv_init, &host->base->clock);
@@ -372,18 +360,24 @@ int arm_pl180_mmci_init(struct pl180_mmc_host *host)
 	/* Disable mmc interrupts */
 	sdi_u32 = readl(&host->base->mask0) & ~SDI_MASK0_MASK;
 	writel(sdi_u32, &host->base->mask0);
-	strncpy(dev->name, host->name, sizeof(dev->name));
-	dev->send_cmd = host_request;
-	dev->set_ios = host_set_ios;
-	dev->init = mmc_host_reset;
-	dev->getcd = NULL;
-	dev->host_caps = host->caps;
-	dev->voltages = host->voltages;
-	dev->f_min = host->clock_min;
-	dev->f_max = host->clock_max;
-	dev->b_max = host->b_max;
-	mmc_register(dev);
-	debug("registered mmc interface number is:%d\n", dev->block_dev.dev);
+
+	host->cfg.name = host->name;
+	host->cfg.ops = &arm_pl180_mmci_ops;
+	/* TODO remove the duplicates */
+	host->cfg.host_caps = host->caps;
+	host->cfg.voltages = host->voltages;
+	host->cfg.f_min = host->clock_min;
+	host->cfg.f_max = host->clock_max;
+	if (host->b_max != 0)
+		host->cfg.b_max = host->b_max;
+	else
+		host->cfg.b_max = CONFIG_SYS_MMC_MAX_BLK_COUNT;
+
+	mmc = mmc_create(&host->cfg, host);
+	if (mmc == NULL)
+		return -1;
+
+	debug("registered mmc interface number is:%d\n", mmc->block_dev.devnum);
 
 	return 0;
 }

@@ -43,16 +43,17 @@ void z_error (m)
  */
 #ifndef MY_ZCALLOC /* Any system without a special alloc function */
 
+#ifdef __UBOOT__
+#include <malloc.h>
+#else
 #ifndef STDC
 extern voidp    malloc OF((uInt size));
 extern voidp    calloc OF((uInt items, uInt size));
 extern void     free   OF((voidpf ptr));
 #endif
+#endif
 
-voidpf zcalloc (opaque, items, size)
-	voidpf opaque;
-	unsigned items;
-	unsigned size;
+voidpf zcalloc(voidpf opaque, unsigned items, unsigned size)
 {
 	if (opaque)
 		items += size - size; /* make compiler happy */
@@ -60,10 +61,7 @@ voidpf zcalloc (opaque, items, size)
 		(voidpf)calloc(items, size);
 }
 
-void  zcfree (opaque, ptr, nb)
-	voidpf opaque;
-	voidpf ptr;
-	unsigned nb;
+void  zcfree(voidpf opaque, voidpf ptr, unsigned nb)
 {
 	free(ptr);
 	if (opaque)

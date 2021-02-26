@@ -15,6 +15,7 @@
 #include <image.h>
 #include <linux/ctype.h>
 #include <mtd/mtd-user.h>
+#include <libgen.h>
 
 #define MAX_LEVEL	32		/* how deeply nested we will go */
 
@@ -250,7 +251,7 @@ int main (int argc, char **argv)
 	off_t file_size = 0;
 	int mmap_failed = 0;
 
-	params.cmdname = *argv;
+	params.cmdname = basename(*argv);
 	params.lflag = 0;
 	params.oflag = 0;
 	params.pflag = 0;
@@ -485,7 +486,7 @@ NXTARG:		;
 			} else {
 				fit_print_contents(working_fdt);
 
-				if (!fit_all_image_check_hashes(working_fdt)) {
+				if (!fit_all_image_verify(working_fdt)) {
 					puts("Bad hash in FIT image!\n");
 					retval = 1;
 				}

@@ -15,149 +15,22 @@
 #include <linux/types.h>
 #include <linux/string.h>
 #include <linux/ctype.h>
-#include <errno.h>
 
 #include <common.h>
-#if !defined (CONFIG_PANIC_HANG)
-#include <command.h>
-#endif
 
 #include <div64.h>
-# define NUM_TYPE long long
 #define noinline __attribute__((noinline))
-
-/* some reluctance to put this into a new limits.h, so it is here */
-#define INT_MAX		((int)(~0U>>1))
-
-const char hex_asc[] = "0123456789abcdef";
-#define hex_asc_lo(x)   hex_asc[((x) & 0x0f)]
-#define hex_asc_hi(x)   hex_asc[((x) & 0xf0) >> 4]
-
-static inline char *pack_hex_byte(char *buf, u8 byte)
-{
-	*buf++ = hex_asc_hi(byte);
-	*buf++ = hex_asc_lo(byte);
-	return buf;
-}
-
-unsigned long simple_strtoul(const char *cp,char **endp,unsigned int base)
-{
-	unsigned long result = 0,value;
-
-	if (*cp == '0') {
-		cp++;
-		if ((*cp == 'x') && isxdigit(cp[1])) {
-			base = 16;
-			cp++;
-		}
-		if (!base) {
-			base = 8;
-		}
-	}
-	if (!base) {
-		base = 10;
-	}
-	while (isxdigit(*cp) && (value = isdigit(*cp) ? *cp-'0' : (islower(*cp)
-	    ? toupper(*cp) : *cp)-'A'+10) < base) {
-		result = result*base + value;
-		cp++;
-	}
-	if (endp)
-		*endp = (char *)cp;
-	return result;
-}
-
-int strict_strtoul(const char *cp, unsigned int base, unsigned long *res)
-{
-	char *tail;
-	unsigned long val;
-	size_t len;
-
-	*res = 0;
-	len = strlen(cp);
-	if (len == 0)
-		return -EINVAL;
-
-	val = simple_strtoul(cp, &tail, base);
-	if (tail == cp)
-		return -EINVAL;
-
-	if ((*tail == '\0') ||
-		((len == (size_t)(tail - cp) + 1) && (*tail == '\n'))) {
-		*res = val;
-		return 0;
-	}
-
-	return -EINVAL;
-}
-
-long simple_strtol(const char *cp,char **endp,unsigned int base)
-{
-	if(*cp=='-')
-		return -simple_strtoul(cp+1,endp,base);
-	return simple_strtoul(cp,endp,base);
-}
-
-int ustrtoul(const char *cp, char **endp, unsigned int base)
-{
-	unsigned long result = simple_strtoul(cp, endp, base);
-	switch (**endp) {
-	case 'G' :
-		result *= 1024;
-		/* fall through */
-	case 'M':
-		result *= 1024;
-		/* fall through */
-	case 'K':
-	case 'k':
-		result *= 1024;
-		if ((*endp)[1] == 'i') {
-			if ((*endp)[2] == 'B')
-				(*endp) += 3;
-			else
-				(*endp) += 2;
-		}
-	}
-	return result;
-}
-
-unsigned long long simple_strtoull (const char *cp, char **endp, unsigned int base)
-{
-	unsigned long long result = 0, value;
-
-	if (*cp == '0') {
-		cp++;
-		if ((*cp == 'x') && isxdigit (cp[1])) {
-			base = 16;
-			cp++;
-		}
-		if (!base) {
-			base = 8;
-		}
-	}
-	if (!base) {
-		base = 10;
-	}
-	while (isxdigit (*cp) && (value = isdigit (*cp)
-				? *cp - '0'
-				: (islower (*cp) ? toupper (*cp) : *cp) - 'A' + 10) < base) {
-		result = result * base + value;
-		cp++;
-	}
-	if (endp)
-		*endp = (char *) cp;
-	return result;
-}
 
 /* we use this so that we can do without the ctype library */
 #define is_digit(c)	((c) >= '0' && (c) <= '9')
 
 static int skip_atoi(const char **s)
 {
-	int i=0;
+	int i = 0;
 
 	while (is_digit(**s))
-		i = i*10 + *((*s)++) - '0';
+		i = i * 10 + *((*s)++) - '0';
+
 	return i;
 }
 
@@ -171,7 +44,7 @@ static int skip_atoi(const char **s)
 /* Formats correctly any integer in [0,99999].
  * Outputs from one to five digits depending on input.
  * On i386 gcc 4.1.2 -O2: ~250 bytes of code. */
-static char* put_dec_trunc(char *buf, unsigned q)
+static char *put_dec_trunc(char *buf, unsigned q)
 {
 	unsigned d3, d2, d1, d0;
 	d1 = (q>>4) & 0xf;
@@ -200,14 +73,14 @@ static char* put_dec_trunc(char *buf, unsigned q)
 				d3 = d3 - 10*q;
 				*buf++ = d3 + '0';  /* next digit */
 				if (q != 0)
-					*buf++ = q + '0';  /* most sign. digit */
+					*buf++ = q + '0'; /* most sign. digit */
 			}
 		}
 	}
 	return buf;
 }
 /* Same with if's removed. Always emits five digits */
-static char* put_dec_full(char *buf, unsigned q)
+static char *put_dec_full(char *buf, unsigned q)
 {
 	/* BTW, if q is in [0,9999], 8-bit ints will be enough, */
 	/* but anyway, gcc produces better code with full-sized ints */
@@ -249,7 +122,7 @@ static char* put_dec_full(char *buf, unsigned q)
 	return buf;
 }
 /* No inlining helps gcc to use registers better */
-static noinline char* put_dec(char *buf, unsigned NUM_TYPE num)
+static noinline char *put_dec(char *buf, uint64_t num)
 {
 	while (1) {
 		unsigned rem;
@@ -268,7 +141,6 @@ static noinline char* put_dec(char *buf, unsigned NUM_TYPE num)
 #define SMALL	32		/* Must be 32 == 0x20 */
 #define SPECIAL	64		/* 0x */
 
-#ifdef CONFIG_SYS_VSNPRINTF
 /*
  * Macro to add a new character to our output string, but only if it will
  * fit. The macro moves to the next character position in the output string.
@@ -278,15 +150,12 @@ static noinline char* put_dec(char *buf, unsigned NUM_TYPE num)
 		*(str) = (ch); \
 	++str; \
 	} while (0)
-#else
-#define ADDCH(str, ch)	(*(str)++ = (ch))
-#endif
 
-static char *number(char *buf, char *end, unsigned NUM_TYPE num,
+static char *number(char *buf, char *end, u64 num,
 		int base, int size, int precision, int type)
 {
 	/* we are called with base 8, 10 or 16, only, thus don't need "G..."  */
-	static const char digits[16] = "0123456789ABCDEF"; /* "GHIJKLMNOPQRSTUVWXYZ"; */
+	static const char digits[16] = "0123456789ABCDEF";
 
 	char tmp[66];
 	char sign;
@@ -301,9 +170,9 @@ static char *number(char *buf, char *end, unsigned NUM_TYPE num,
 		type &= ~ZEROPAD;
 	sign = 0;
 	if (type & SIGN) {
-		if ((signed NUM_TYPE) num < 0) {
+		if ((s64) num < 0) {
 			sign = '-';
-			num = - (signed NUM_TYPE) num;
+			num = -(s64) num;
 			size--;
 		} else if (type & PLUS) {
 			sign = '+';
@@ -331,9 +200,13 @@ static char *number(char *buf, char *end, unsigned NUM_TYPE num,
 	else if (base != 10) { /* 8 or 16 */
 		int mask = base - 1;
 		int shift = 3;
-		if (base == 16) shift = 4;
+
+		if (base == 16)
+			shift = 4;
+
 		do {
-			tmp[i++] = (digits[((unsigned char)num) & mask] | locase);
+			tmp[i++] = (digits[((unsigned char)num) & mask]
+					| locase);
 			num >>= shift;
 		} while (num);
 	} else { /* base 10 */
@@ -382,7 +255,7 @@ static char *string(char *buf, char *end, char *s, int field_width,
 {
 	int len, i;
 
-	if (s == 0)
+	if (s == NULL)
 		s = "<NULL>";
 
 	len = strnlen(s, precision);
@@ -398,10 +271,22 @@ static char *string(char *buf, char *end, char *s, int field_width,
 }
 
 #ifdef CONFIG_CMD_NET
+static const char hex_asc[] = "0123456789abcdef";
+#define hex_asc_lo(x)	hex_asc[((x) & 0x0f)]
+#define hex_asc_hi(x)	hex_asc[((x) & 0xf0) >> 4]
+
+static inline char *pack_hex_byte(char *buf, u8 byte)
+{
+	*buf++ = hex_asc_hi(byte);
+	*buf++ = hex_asc_lo(byte);
+	return buf;
+}
+
 static char *mac_address_string(char *buf, char *end, u8 *addr, int field_width,
 				int precision, int flags)
 {
-	char mac_addr[6 * 3]; /* (6 * 2 hex digits), 5 colons and trailing zero */
+	/* (6 * 2 hex digits), 5 colons and trailing zero */
+	char mac_addr[6 * 3];
 	char *p = mac_addr;
 	int i;
 
@@ -419,7 +304,8 @@ static char *mac_address_string(char *buf, char *end, u8 *addr, int field_width,
 static char *ip6_addr_string(char *buf, char *end, u8 *addr, int field_width,
 			 int precision, int flags)
 {
-	char ip6_addr[8 * 5]; /* (8 * 4 hex digits), 7 colons and trailing zero */
+	/* (8 * 4 hex digits), 7 colons and trailing zero */
+	char ip6_addr[8 * 5];
 	char *p = ip6_addr;
 	int i;
 
@@ -438,7 +324,8 @@ static char *ip6_addr_string(char *buf, char *end, u8 *addr, int field_width,
 static char *ip4_addr_string(char *buf, char *end, u8 *addr, int field_width,
 			 int precision, int flags)
 {
-	char ip4_addr[4 * 4]; /* (4 * 3 decimal digits), 3 dots and trailing zero */
+	/* (4 * 3 decimal digits), 3 dots and trailing zero */
+	char ip4_addr[4 * 4];
 	char temp[3];	/* hold each IP quad in reverse order */
 	char *p = ip4_addr;
 	int i, digits;
@@ -479,12 +366,31 @@ static char *ip4_addr_string(char *buf, char *end, u8 *addr, int field_width,
 static char *pointer(const char *fmt, char *buf, char *end, void *ptr,
 		int field_width, int precision, int flags)
 {
+	u64 num = (uintptr_t)ptr;
+
+	/*
+	 * Being a boot loader, we explicitly allow pointers to
+	 * (physical) address null.
+	 */
+#if 0
 	if (!ptr)
 		return string(buf, end, "(null)", field_width, precision,
 			      flags);
+#endif
 
 #ifdef CONFIG_CMD_NET
 	switch (*fmt) {
+	case 'a':
+		flags |= SPECIAL | ZEROPAD;
+
+		switch (fmt[1]) {
+		case 'p':
+		default:
+			field_width = sizeof(phys_addr_t) * 2 + 2;
+			num = *(phys_addr_t *)ptr;
+			break;
+		}
+		break;
 	case 'm':
 		flags |= SPECIAL;
 		/* Fallthrough */
@@ -510,14 +416,13 @@ static char *pointer(const char *fmt, char *buf, char *end, void *ptr,
 		field_width = 2*sizeof(void *);
 		flags |= ZEROPAD;
 	}
-	return number(buf, end, (unsigned long)ptr, 16, field_width,
-		      precision, flags);
+	return number(buf, end, num, 16, field_width, precision, flags);
 }
 
 static int vsnprintf_internal(char *buf, size_t size, const char *fmt,
 			      va_list args)
 {
-	unsigned NUM_TYPE num;
+	u64 num;
 	int base;
 	char *str;
 
@@ -532,13 +437,11 @@ static int vsnprintf_internal(char *buf, size_t size, const char *fmt,
 				/* 't' added for ptrdiff_t */
 	char *end = buf + size;
 
-#ifdef CONFIG_SYS_VSNPRINTF
 	/* Make sure end is always >= buf - do we want this in U-Boot? */
 	if (end < buf) {
 		end = ((void *)-1);
 		size = end - buf;
 	}
-#endif
 	str = buf;
 
 	for (; *fmt ; ++fmt) {
@@ -549,14 +452,24 @@ static int vsnprintf_internal(char *buf, size_t size, const char *fmt,
 
 		/* process flags */
 		flags = 0;
-		repeat:
+repeat:
 			++fmt;		/* this also skips first '%' */
 			switch (*fmt) {
-				case '-': flags |= LEFT; goto repeat;
-				case '+': flags |= PLUS; goto repeat;
-				case ' ': flags |= SPACE; goto repeat;
-				case '#': flags |= SPECIAL; goto repeat;
-				case '0': flags |= ZEROPAD; goto repeat;
+			case '-':
+				flags |= LEFT;
+				goto repeat;
+			case '+':
+				flags |= PLUS;
+				goto repeat;
+			case ' ':
+				flags |= SPACE;
+				goto repeat;
+			case '#':
+				flags |= SPECIAL;
+				goto repeat;
+			case '0':
+				flags |= ZEROPAD;
+				goto repeat;
 			}
 
 		/* get field width */
@@ -620,7 +533,7 @@ static int vsnprintf_internal(char *buf, size_t size, const char *fmt,
 			continue;
 
 		case 'p':
-			str = pointer(fmt+1, str, end,
+			str = pointer(fmt + 1, str, end,
 					va_arg(args, void *),
 					field_width, precision, flags);
 			/* Skip all alphanumeric pointer suffixes */
@@ -630,10 +543,10 @@ static int vsnprintf_internal(char *buf, size_t size, const char *fmt,
 
 		case 'n':
 			if (qualifier == 'l') {
-				long * ip = va_arg(args, long *);
+				long *ip = va_arg(args, long *);
 				*ip = (str - buf);
 			} else {
-				int * ip = va_arg(args, int *);
+				int *ip = va_arg(args, int *);
 				*ip = (str - buf);
 			}
 			continue;
@@ -690,20 +603,16 @@ static int vsnprintf_internal(char *buf, size_t size, const char *fmt,
 			     flags);
 	}
 
-#ifdef CONFIG_SYS_VSNPRINTF
 	if (size > 0) {
 		ADDCH(str, '\0');
 		if (str > end)
 			end[-1] = '\0';
+		--str;
 	}
-#else
-	*str = '\0';
-#endif
 	/* the trailing null byte doesn't count towards the total */
-	return str-buf;
+	return str - buf;
 }
 
-#ifdef CONFIG_SYS_VSNPRINTF
 int vsnprintf(char *buf, size_t size, const char *fmt,
 			      va_list args)
 {
@@ -746,7 +655,6 @@ int scnprintf(char *buf, size_t size, const char *fmt, ...)
 
 	return i;
 }
-#endif /* CONFIG_SYS_VSNPRINT */
 
 /**
  * Format a string and place it in a buffer (va_list version)
@@ -766,33 +674,53 @@ int vsprintf(char *buf, const char *fmt, va_list args)
 	return vsnprintf_internal(buf, INT_MAX, fmt, args);
 }
 
-int sprintf(char * buf, const char *fmt, ...)
+int sprintf(char *buf, const char *fmt, ...)
 {
 	va_list args;
 	int i;
 
 	va_start(args, fmt);
-	i=vsprintf(buf,fmt,args);
+	i = vsprintf(buf, fmt, args);
 	va_end(args);
 	return i;
 }
 
-void panic(const char *fmt, ...)
+int printf(const char *fmt, ...)
 {
-	va_list	args;
+	va_list args;
+	uint i;
+	char printbuffer[CONFIG_SYS_PBSIZE];
+
 	va_start(args, fmt);
-	vprintf(fmt, args);
-	putc('\n');
+
+	/*
+	 * For this to work, printbuffer must be larger than
+	 * anything we ever want to print.
+	 */
+	i = vscnprintf(printbuffer, sizeof(printbuffer), fmt, args);
 	va_end(args);
-#if defined (CONFIG_PANIC_HANG)
-	hang();
-#else
-	udelay (100000);	/* allow messages to go out */
-	do_reset (NULL, 0, 0, NULL);
-#endif
-	while (1)
-		;
+
+	/* Print the string */
+	puts(printbuffer);
+	return i;
 }
+
+int vprintf(const char *fmt, va_list args)
+{
+	uint i;
+	char printbuffer[CONFIG_SYS_PBSIZE];
+
+	/*
+	 * For this to work, printbuffer must be larger than
+	 * anything we ever want to print.
+	 */
+	i = vscnprintf(printbuffer, sizeof(printbuffer), fmt, args);
+
+	/* Print the string */
+	puts(printbuffer);
+	return i;
+}
+
 
 void __assert_fail(const char *assertion, const char *file, unsigned line,
 		   const char *function)
@@ -814,4 +742,36 @@ char *simple_itoa(ulong i)
 		i /= 10;
 	} while (i > 0);
 	return p + 1;
+}
+
+/* We don't seem to have %'d in U-Boot */
+void print_grouped_ull(unsigned long long int_val, int digits)
+{
+	char str[21], *s;
+	int grab = 3;
+
+	digits = (digits + 2) / 3;
+	sprintf(str, "%*llu", digits * 3, int_val);
+	for (s = str; *s; s += grab) {
+		if (s != str)
+			putc(s[-1] != ' ' ? ',' : ' ');
+		printf("%.*s", grab, s);
+		grab = 3;
+	}
+}
+
+bool str2off(const char *p, loff_t *num)
+{
+	char *endptr;
+
+	*num = simple_strtoull(p, &endptr, 16);
+	return *p != '\0' && *endptr == '\0';
+}
+
+bool str2long(const char *p, ulong *num)
+{
+	char *endptr;
+
+	*num = simple_strtoul(p, &endptr, 16);
+	return *p != '\0' && *endptr == '\0';
 }

@@ -13,9 +13,7 @@
  * Original Copyrights follow:
  * Copyright (C) 2010 Nokia Corporation
  *
- * This software is distributed under the terms of the GNU General
- * Public License ("GPL") as published by the Free Software Foundation,
- * version 2 of that License.
+ * SPDX-License-Identifier:	GPL-2.0
  */
 
 #ifndef __USB_ULPI_H__
@@ -34,7 +32,7 @@
  * be extended from this structure
  */
 struct ulpi_viewport {
-	u32 viewport_addr;
+	uintptr_t viewport_addr;
 	u32 port_num;
 };
 
@@ -61,8 +59,17 @@ int ulpi_select_transceiver(struct ulpi_viewport *ulpi_vp, unsigned speed);
  *
  * returns 0 on success, ULPI_ERROR on failure.
  */
-int ulpi_set_vbus(struct ulpi_viewport *ulpi_vp,
-			int on, int ext_power, int ext_ind);
+int ulpi_set_vbus(struct ulpi_viewport *ulpi_vp, int on, int ext_power);
+
+/*
+ * Configure VBUS indicator
+ * @external		- external VBUS over-current indicator is used
+ * @passthru		- disables ANDing of internal VBUS comparator
+ *                    with external VBUS input
+ * @complement		- inverts the external VBUS input
+ */
+int ulpi_set_vbus_indicator(struct ulpi_viewport *ulpi_vp, int external,
+			int passthru, int complement);
 
 /*
  * Enable/disable pull-down resistors on D+ and D- USB lines.
@@ -116,6 +123,7 @@ int ulpi_reset(struct ulpi_viewport *ulpi_vp);
 /*
  * Write to the ULPI PHY register via the viewport.
  * @reg		- the ULPI register (one of the fields in struct ulpi_regs).
+ *		  Due to ULPI design, only 8 lsb of address are used.
  * @value	- the value - only 8 lower bits are used, others ignored.
  *
  * returns 0 on success, ULPI_ERROR on failure.
@@ -125,6 +133,7 @@ int ulpi_write(struct ulpi_viewport *ulpi_vp, u8 *reg, u32 value);
 /*
  * Read the ULPI PHY register content via the viewport.
  * @reg		- the ULPI register (one of the fields in struct ulpi_regs).
+ *		  Due to ULPI design, only 8 lsb of address are used.
  *
  * returns register content on success, ULPI_ERROR on failure.
  */

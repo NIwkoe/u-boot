@@ -1,5 +1,5 @@
 /*
- * U-boot - Configuration file for BF537 STAMP board
+ * U-Boot - Configuration file for BF537 STAMP board
  */
 
 #ifndef __CONFIG_BF537_STAMP_H__
@@ -7,13 +7,11 @@
 
 #include <asm/config-pre.h>
 
-
 /*
  * Processor Settings
  */
 #define CONFIG_BFIN_CPU             bf537-0.2
 #define CONFIG_BFIN_BOOT_MODE       BFIN_BOOT_BYPASS
-
 
 /*
  * Clock Settings
@@ -38,7 +36,6 @@
 /* Values can range from 1-15						*/
 #define CONFIG_SCLK_DIV			4
 
-
 /*
  * Memory Settings
  */
@@ -52,9 +49,8 @@
 #define CONFIG_EBIU_AMBCTL0_VAL	0x7BB07BB0
 #define CONFIG_EBIU_AMBCTL1_VAL	0xFFC27BB0
 
-#define CONFIG_SYS_MONITOR_LEN		(512 * 1024)
+#define CONFIG_SYS_MONITOR_LEN		(768 * 1024)
 #define CONFIG_SYS_MALLOC_LEN		(384 * 1024)
-
 
 /*
  * Network Settings
@@ -65,9 +61,6 @@
 #define CONFIG_NETCONSOLE	1
 #endif
 #define CONFIG_HOSTNAME		bf537-stamp
-/* Uncomment next line to use fixed MAC address */
-/* #define CONFIG_ETHADDR	02:80:ad:20:31:e8 */
-
 
 /*
  * Flash Settings
@@ -80,16 +73,13 @@
 /* some have 67 sectors (M29W320DB), but newer have 71 (M29W320EB) */
 #define CONFIG_SYS_MAX_FLASH_SECT	71
 
-
 /*
  * SPI Settings
  */
 #define CONFIG_BFIN_SPI
 #define CONFIG_ENV_SPI_MAX_HZ	30000000
 #define CONFIG_SF_DEFAULT_SPEED	30000000
-#define CONFIG_SPI_FLASH
 #define CONFIG_SPI_FLASH_ALL
-
 
 /*
  * Env Storage Settings
@@ -118,32 +108,28 @@
  * it linked after the configuration sector.
  */
 # define LDS_BOARD_TEXT \
-	arch/blackfin/lib/libblackfin.o (.text*); \
-	arch/blackfin/cpu/libblackfin.o (.text*); \
+	arch/blackfin/lib/built-in.o (.text*); \
+	arch/blackfin/cpu/built-in.o (.text*); \
 	. = DEFINED(env_offset) ? env_offset : .; \
 	common/env_embedded.o (.text*);
 #endif
 
-
 /*
  * I2C Settings
  */
-#define CONFIG_BFIN_TWI_I2C	1
-#define CONFIG_HARD_I2C		1
-
+#define CONFIG_SYS_I2C
+#define CONFIG_SYS_I2C_ADI
 
 /*
  * SPI_MMC Settings
  */
-#define CONFIG_MMC
-#define CONFIG_GENERIC_MMC
 #define CONFIG_MMC_SPI
-
 
 /*
  * NAND Settings
  */
 /* #define CONFIG_NAND_PLAT */
+#ifdef CONFIG_NAND_PLAT
 #define CONFIG_SYS_NAND_BASE		0x20212000
 #define CONFIG_SYS_MAX_NAND_DEVICE	1
 
@@ -158,7 +144,7 @@
 #define NAND_PLAT_WRITE_CMD(chip, cmd) BFIN_NAND_WRITE(BFIN_NAND_CLE(chip), cmd)
 #define NAND_PLAT_WRITE_ADR(chip, cmd) BFIN_NAND_WRITE(BFIN_NAND_ALE(chip), cmd)
 #define NAND_PLAT_GPIO_DEV_READY       GPIO_PF3
-
+#endif /* CONFIG_NAND_PLAT */
 
 /*
  * CF-CARD IDE-HDD Support
@@ -195,7 +181,6 @@
 
 #if defined(CONFIG_BFIN_IDE)
 
-#define CONFIG_DOS_PARTITION	1
 /*
  * IDE/ATA stuff
  */
@@ -245,7 +230,6 @@
 
 #endif
 
-
 /*
  * Misc Settings
  */
@@ -270,12 +254,7 @@
 /* These are for board tests */
 #if 0
 #define CONFIG_BOOTCOMMAND       "bootldr 0x203f0100"
-#define CONFIG_AUTOBOOT_KEYED
-#define CONFIG_AUTOBOOT_PROMPT \
-	"autoboot in %d seconds: press space to stop\n", bootdelay
-#define CONFIG_AUTOBOOT_STOP_STR " "
 #endif
-
 
 /*
  * Pull in common ADI header for remaining command/environment setup

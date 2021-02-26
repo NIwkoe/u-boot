@@ -3,23 +3,7 @@
  * Data Flash Atmel Description File
  * Author : Hamid Ikdoumi (Atmel)
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /* File Name		: dataflash.h					*/
@@ -39,7 +23,7 @@
 /*number of protected area*/
 #define NB_DATAFLASH_AREA		5
 
-#ifdef CONFIG_SYS_NO_FLASH
+#ifndef CONFIG_MTD_NOR_FLASH
 
 /*-----------------------------------------------------------------------
  * return codes from flash_write():
@@ -65,7 +49,7 @@
  * Set Environment according to label:
  */
 # define	FLAG_SETENV		0x80
-#endif /* CONFIG_SYS_NO_FLASH */
+#endif /* CONFIG_MTD_NOR_FLASH */
 
 /*define the area structure*/
 typedef struct {

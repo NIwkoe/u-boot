@@ -2,23 +2,7 @@
  * (C) Copyright 2006
  * Markus Klotzbuecher, mk@denx.de
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -64,8 +48,9 @@
  */
 #define RTC_STAT_BIT_A1F	0x1	/* Alarm 1 flag                 */
 #define RTC_STAT_BIT_A2F	0x2	/* Alarm 2 flag                 */
-#define RTC_STAT_BIT_BB32KHZ	0x40	/* Battery-backed 32kHz output  */
 #define RTC_STAT_BIT_OSF	0x80	/* Oscillator stop flag         */
+#define RTC_STAT_BIT_BB32KHZ	0x40	/* Battery backed 32KHz Output  */
+#define RTC_STAT_BIT_EN32KHZ	0x8	/* Enable 32KHz Output  */
 
 
 static uchar rtc_read (uchar reg);
@@ -158,19 +143,14 @@ void rtc_reset (void)
 	rtc_write (RTC_CTL_REG_ADDR, RTC_CTL_BIT_RS1 | RTC_CTL_BIT_RS2);
 }
 
-
 /*
- * Configure the RTC to not waste battery by disabling the BB32KHZ bit.
+ * Enable 32KHz output
  */
-void rtc_ds3232_disable_bb32khz (void)
+void rtc_enable_32khz_output(void)
 {
-	uchar status;
-
-	status = rtc_read (RTC_STAT_REG_ADDR);
-	status &= ~RTC_STAT_BIT_BB32KHZ;
-	rtc_write (RTC_STAT_REG_ADDR, status);
+	rtc_write(RTC_STAT_REG_ADDR,
+		  RTC_STAT_BIT_BB32KHZ | RTC_STAT_BIT_EN32KHZ);
 }
-
 
 /*
  * Helper functions

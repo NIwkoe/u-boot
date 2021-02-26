@@ -1,637 +1,331 @@
 /*
+ * (C) Copyright 2013 Xilinx, Inc.
+ * (C) Copyright 2015 Jagan Teki <jteki@openedev.com>
  *
- * Xilinx PSS Quad-SPI (QSPI) controller driver (master mode only)
+ * Xilinx Zynq Quad-SPI(QSPI) controller driver (master mode only)
  *
- * (c) 2011 Xilinx, Inc.
- *
- * based on Xilinx PSS SPI Driver (xspips.c)
- *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License version 2 as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 59 Temple
- * Place, Suite 330, Boston, MA  02111-1307  USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
-
-#ifdef LINUX_ONLY_NOT_UBOOT
-#include <linux/module.h>
-#include <linux/init.h>
-#include <linux/interrupt.h>
-#include <linux/platform_device.h>
-#include <linux/spi/spi.h>
-#include <linux/io.h>
-#include <linux/spinlock.h>
-#include <linux/workqueue.h>
-#include <linux/delay.h>
-#include <linux/xilinx_devices.h>
-#else
-
-#define NDEBUG
-#include "xbasic_types.h"
 #include <common.h>
+#include <dm.h>
 #include <malloc.h>
-
-#include <linux/compat.h>
-#include <ubi_uboot.h>
 #include <spi.h>
+#include <asm/io.h>
 
-#include "zynq_qspi.h"
+DECLARE_GLOBAL_DATA_PTR;
 
-#define DEBUG
-#define DEBUG_REG
-#undef DEBUG
-#undef DEBUG_REG
+/* zynq qspi register bit masks ZYNQ_QSPI_<REG>_<BIT>_MASK */
+#define ZYNQ_QSPI_CR_IFMODE_MASK	BIT(31)	/* Flash intrface mode*/
+#define ZYNQ_QSPI_CR_MSA_MASK		BIT(15)	/* Manual start enb */
+#define ZYNQ_QSPI_CR_MCS_MASK		BIT(14)	/* Manual chip select */
+#define ZYNQ_QSPI_CR_PCS_MASK		BIT(10)	/* Peri chip select */
+#define ZYNQ_QSPI_CR_FW_MASK		GENMASK(7, 6)	/* FIFO width */
+#define ZYNQ_QSPI_CR_SS_MASK		GENMASK(13, 10)	/* Slave Select */
+#define ZYNQ_QSPI_CR_BAUD_MASK		GENMASK(5, 3)	/* Baud rate div */
+#define ZYNQ_QSPI_CR_CPHA_MASK		BIT(2)	/* Clock phase */
+#define ZYNQ_QSPI_CR_CPOL_MASK		BIT(1)	/* Clock polarity */
+#define ZYNQ_QSPI_CR_MSTREN_MASK	BIT(0)	/* Mode select */
+#define ZYNQ_QSPI_IXR_RXNEMPTY_MASK	BIT(4)	/* RX_FIFO_not_empty */
+#define ZYNQ_QSPI_IXR_TXOW_MASK		BIT(2)	/* TX_FIFO_not_full */
+#define ZYNQ_QSPI_IXR_ALL_MASK		GENMASK(6, 0)	/* All IXR bits */
+#define ZYNQ_QSPI_ENR_SPI_EN_MASK	BIT(0)	/* SPI Enable */
+#define ZYNQ_QSPI_LQSPICFG_LQMODE_MASK	BIT(31) /* Linear QSPI Mode */
 
+/* zynq qspi Transmit Data Register */
+#define ZYNQ_QSPI_TXD_00_00_OFFSET	0x1C	/* Transmit 4-byte inst */
+#define ZYNQ_QSPI_TXD_00_01_OFFSET	0x80	/* Transmit 1-byte inst */
+#define ZYNQ_QSPI_TXD_00_10_OFFSET	0x84	/* Transmit 2-byte inst */
+#define ZYNQ_QSPI_TXD_00_11_OFFSET	0x88	/* Transmit 3-byte inst */
+
+#define ZYNQ_QSPI_TXFIFO_THRESHOLD	1	/* Tx FIFO threshold level*/
+#define ZYNQ_QSPI_RXFIFO_THRESHOLD	32	/* Rx FIFO threshold level */
+
+#define ZYNQ_QSPI_CR_BAUD_MAX		8	/* Baud rate divisor max val */
+#define ZYNQ_QSPI_CR_BAUD_SHIFT		3	/* Baud rate divisor shift */
+#define ZYNQ_QSPI_CR_SS_SHIFT		10	/* Slave select shift */
+
+#define ZYNQ_QSPI_FIFO_DEPTH		63
+#ifndef CONFIG_SYS_ZYNQ_QSPI_WAIT
+#define CONFIG_SYS_ZYNQ_QSPI_WAIT	CONFIG_SYS_HZ/100	/* 10 ms */
 #endif
 
-/****** stubs to make this Linux driver build in this environment **/
-
-#define spin_lock_irqsave(__X__, flags) \
-		flags = 0;
-#define spin_unlock_irqrestore(__X__, flags) \
-		flags |= 0;
-#define MODULE_ALIAS(__X__)
-
-#define dev_dbg(dev, format, arg...) \
-        printf(format , ## arg)
-
-#define dev_err(dev, format, arg...) \
-        printf(format , ## arg)
-
-#define wait_for_completion(__X__) \
-	{ \
-		u32 data; \
-\
-		do { \
-			data = xqspips_irq_poll(xqspi); \
-		} while (data == 0); \
-	}
-
-#define __devinit
-#define __devinitdata
-#define __devexit
-#define __devexitdata
-#define __force
-
-extern void XIo_Out32(u32 OutAddress, u32 Value);
-extern u32  XIo_In32(u32 InAddress);
-
-#define spi_master_get_devdata(__X__)  (&(__X__))
-#define INIT_COMPLETION(__X__)
-
-/**
- * enum irqreturn
- * @IRQ_NONE            interrupt was not from this device
- * @IRQ_HANDLED         interrupt was handled by this device
- * @IRQ_WAKE_THREAD     handler requests to wake the handler thread
- */
-enum irqreturn {
-        IRQ_NONE,
-        IRQ_HANDLED,
-        IRQ_WAKE_THREAD,
+/* zynq qspi register set */
+struct zynq_qspi_regs {
+	u32 cr;		/* 0x00 */
+	u32 isr;	/* 0x04 */
+	u32 ier;	/* 0x08 */
+	u32 idr;	/* 0x0C */
+	u32 imr;	/* 0x10 */
+	u32 enr;	/* 0x14 */
+	u32 dr;		/* 0x18 */
+	u32 txd0r;	/* 0x1C */
+	u32 drxr;	/* 0x20 */
+	u32 sicr;	/* 0x24 */
+	u32 txftr;	/* 0x28 */
+	u32 rxftr;	/* 0x2C */
+	u32 gpior;	/* 0x30 */
+	u32 reserved0[19];
+	u32 txd1r;	/* 0x80 */
+	u32 txd2r;	/* 0x84 */
+	u32 txd3r;	/* 0x88 */
+	u32 reserved1[5];
+	u32 lqspicfg;	/* 0xA0 */
+	u32 lqspists;	/* 0xA4 */
 };
-typedef enum irqreturn irqreturn_t;
 
-/*******************************************************************/
-
-#undef HACK_WRITE_NO_DELAY
-
-/*
- * Name of this driver
- */
-#define DRIVER_NAME			"Xilinx_PSS_QSPI"
-
-/*
- * Register offset definitions
- */
-#define XQSPIPSS_CONFIG_OFFSET		0x00 /* Configuration  Register, RW */
-#define XQSPIPSS_STATUS_OFFSET 		0x04 /* Interrupt Status Register, RO */
-#define XQSPIPSS_IEN_OFFSET		0x08 /* Interrupt Enable Register, WO */
-#define XQSPIPSS_IDIS_OFFSET		0x0C /* Interrupt Disable Reg, WO */
-#define XQSPIPSS_IMASK_OFFSET		0x10 /* Interrupt Enabled Mask Reg,RO */
-#define XQSPIPSS_ENABLE_OFFSET		0x14 /* Enable/Disable Register, RW */
-#define XQSPIPSS_DELAY_OFFSET 		0x18 /* Delay Register, RW */
-#define XQSPIPSS_TXD_00_00_OFFSET	0x1C /* Transmit 4-byte inst, WO */
-#define XQSPIPSS_TXD_00_01_OFFSET	0x80 /* Transmit 1-byte inst, WO */
-#define XQSPIPSS_TXD_00_10_OFFSET	0x84 /* Transmit 2-byte inst, WO */
-#define XQSPIPSS_TXD_00_11_OFFSET	0x88 /* Transmit 3-byte inst, WO */
-#define XQSPIPSS_RXD_OFFSET		0x20 /* Data Receive Register, RO */
-#define XQSPIPSS_SIC_OFFSET		0x24 /* Slave Idle Count Register, RW */
-#define XQSPIPSS_TX_THRESH_OFFSET	0x28 /* TX FIFO Watermark Reg, RW */
-#define XQSPIPSS_RX_THRESH_OFFSET	0x2C /* RX FIFO Watermark Reg, RW */
-#define XQSPIPSS_GPIO_OFFSET		0x30 /* GPIO Register, RW */
-#define XQSPIPSS_LINEAR_CFG_OFFSET	0xA0 /* Linear Adapter Config Ref, RW */
-#define XQSPIPSS_MOD_ID_OFFSET		0xFC /* Module ID Register, RO */
-
-/*
- * QSPI Configuration Register bit Masks
- *
- * This register contains various control bits that effect the operation
- * of the QSPI controller
- */
-#define XQSPIPSS_CONFIG_MANSRT_MASK	0x00010000 /* Manual TX Start */
-#define XQSPIPSS_CONFIG_CPHA_MASK	0x00000004 /* Clock Phase Control */
-#define XQSPIPSS_CONFIG_CPOL_MASK	0x00000002 /* Clock Polarity Control */
-#define XQSPIPSS_CONFIG_SSCTRL_MASK	0x00003C00 /* Slave Select Mask */
-
-/*
- * QSPI Interrupt Registers bit Masks
- *
- * All the four interrupt registers (Status/Mask/Enable/Disable) have the same
- * bit definitions.
- */
-#define XQSPIPSS_IXR_MODF_MASK		0x00000002 /* QSPI Mode Fault */
-#define XQSPIPSS_IXR_TXNFULL_MASK	0x00000004 /* QSPI TX FIFO Overflow */
-#define XQSPIPSS_IXR_TXFULL_MASK	0x00000008 /* QSPI TX FIFO is full */
-#define XQSPIPSS_IXR_RXNEMTY_MASK	0x00000010 /* QSPI RX FIFO Not Empty */
-#define XQSPIPSS_IXR_ALL_MASK		(XQSPIPSS_IXR_TXNFULL_MASK | \
-					 XQSPIPSS_IXR_RXNEMTY_MASK | \
-					 XQSPIPSS_IXR_MODF_MASK)
-
-/*
- * QSPI Enable Register bit Masks
- *
- * This register is used to enable or disable the QSPI controller
- */
-#define XQSPIPSS_ENABLE_ENABLE_MASK	0x00000001 /* QSPI Enable Bit Mask */
-
-/*
- * The modebits configurable by the driver to make the SPI support different
- * data formats
- */
-#define MODEBITS			(SPI_CPOL | SPI_CPHA)
-
-/*
- * Definitions for the status of queue
- */
-#define XQSPIPSS_QUEUE_STOPPED		0
-#define XQSPIPSS_QUEUE_RUNNING		1
-
-/*
- * Definitions of the flash commands
- */
-/* Flash opcodes in ascending order */
-#define	XQSPIPSS_FLASH_OPCODE_WRSR	0x01	/* Write status register */
-#define	XQSPIPSS_FLASH_OPCODE_PP	0x02	/* Page program */
-#define	XQSPIPSS_FLASH_OPCODE_NORM_READ	0x03	/* Normal read data bytes */
-#define	XQSPIPSS_FLASH_OPCODE_WRDS	0x04	/* Write disable */
-#define	XQSPIPSS_FLASH_OPCODE_RDSR1	0x05	/* Read status register 1 */
-#define	XQSPIPSS_FLASH_OPCODE_WREN	0x06	/* Write enable */
-#define	XQSPIPSS_FLASH_OPCODE_FAST_READ	0x0B	/* Fast read data bytes */
-#define	XQSPIPSS_FLASH_OPCODE_BE_4K	0x20	/* Erase 4KiB block */
-#define	XQSPIPSS_FLASH_OPCODE_RDSR2	0x35	/* Read status register 2 */
-#define	XQSPIPSS_FLASH_OPCODE_DUAL_READ	0x3B	/* Dual read data bytes */
-#define	XQSPIPSS_FLASH_OPCODE_BE_32K	0x52	/* Erase 32KiB block */
-#define	XQSPIPSS_FLASH_OPCODE_QUAD_READ	0x6B	/* Quad read data bytes */
-#define	XQSPIPSS_FLASH_OPCODE_ERASE_SUS	0x75	/* Erase suspend */
-#define	XQSPIPSS_FLASH_OPCODE_ERASE_RES	0x7A	/* Erase resume */
-#define	XQSPIPSS_FLASH_OPCODE_RDID	0x9F	/* Read JEDEC ID */
-#define	XQSPIPSS_FLASH_OPCODE_BE	0xC7	/* Erase whole flash block */
-#define	XQSPIPSS_FLASH_OPCODE_SE	0xD8	/* Sector erase (usually 64KB)*/
-
-/*
- * Macros for the QSPI controller read/write
- */
-#ifdef LINUX_ONLY_NOT_UBOOT
-#define xqspips_read(addr)		__raw_readl(addr)
-#define xqspips_write(addr, val)	__raw_writel((val), (addr))
-#else
-static inline
-u32 xqspips_read(void *addr)
-{					
-	u32 val;
-
-	val =  XIo_In32((unsigned)addr);
-#ifdef DEBUG_REG
-	printf("xqspips_read:  addr: 0x%08x = 0x%08x\n",
-		addr, val);
-#endif
-	return val;
-}
-static inline
-void xqspips_write(void *addr, u32 val)
-{
-#ifdef DEBUG_REG
-	printf("xqspips_write: addr: 0x%08x = 0x%08x\n",
-		addr, val);
-#endif
-	XIo_Out32((unsigned)addr, val);
-}
-#endif
-
-#ifdef LINUX_ONLY_NOT_UBOOT
-
-/**
- * struct xqspips - Defines qspi driver instance
- * @workqueue:		Queue of all the transfers
- * @work:		Information about current transfer
- * @queue:		Head of the queue
- * @queue_state:	Queue status
- * @regs:		Virtual address of the QSPI controller registers
- * @input_clk_hz:	Input clock frequency of the QSPI controller in Hz
- * @irq:		IRQ number
- * @speed_hz:		Current QSPI bus clock speed in Hz
- * @trans_queue_lock:	Lock used for accessing transfer queue
- * @config_reg_lock:	Lock used for accessing configuration register
- * @txbuf: 		Pointer	to the TX buffer
- * @rxbuf:		Pointer to the RX buffer
- * @bytes_to_transfer:	Number of bytes left to transfer
- * @bytes_to_receive:	Number of bytes left to receive
- * @dev_busy:		Device busy flag
- * @done:		Transfer complete status
- * @curr_inst:		Current executing instruction format
- * @inst_response:	Responce to the instruction or data
- * @is_inst:		Flag to indicate the first message in a Transfer request
- **/
-struct xqspips {
-	struct workqueue_struct *workqueue;
-	struct work_struct work;
-	struct list_head queue;
-
-	u8 queue_state;
-	void __iomem *regs;
-	u32 input_clk_hz;
-	u32 irq;
+/* zynq qspi platform data */
+struct zynq_qspi_platdata {
+	struct zynq_qspi_regs *regs;
+	u32 frequency;          /* input frequency */
 	u32 speed_hz;
-	spinlock_t trans_queue_lock;
-	spinlock_t config_reg_lock;
-	const void *txbuf;
-	void *rxbuf;
+};
+
+/* zynq qspi priv */
+struct zynq_qspi_priv {
+	struct zynq_qspi_regs *regs;
+	u8 cs;
+	u8 mode;
+	u8 fifo_depth;
+	u32 freq;		/* required frequency */
+	const void *tx_buf;
+	void *rx_buf;
+	unsigned len;
 	int bytes_to_transfer;
 	int bytes_to_receive;
-	u8 dev_busy;
-	struct completion done;
-	struct xqspips_inst_format *curr_inst;
-	u8 inst_response;
-	bool is_inst;
+	unsigned int is_inst;
+	unsigned cs_change:1;
 };
 
-#endif
-
-/**
- * struct xqspips_inst_format - Defines qspi flash instruction format
- * @opcode:		Operational code of instruction
- * @inst_size:		Size of the instruction including address bytes
- * @offset:		Register address where instruction has to be written
- **/
-struct xqspips_inst_format {
-	u8 opcode;
-	u8 inst_size;
-	u8 offset;
-};
-
-/*
- * List of all the QSPI instructions and its format
- */
-static struct xqspips_inst_format __devinitdata flash_inst[] = {
-	{ XQSPIPSS_FLASH_OPCODE_WREN, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_WRDS, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_RDSR1, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_RDSR2, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_WRSR, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_PP, 4, XQSPIPSS_TXD_00_00_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_SE, 4, XQSPIPSS_TXD_00_00_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_BE_32K, 4, XQSPIPSS_TXD_00_00_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_BE_4K, 4, XQSPIPSS_TXD_00_00_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_BE, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_ERASE_SUS, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_ERASE_RES, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_RDID, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_NORM_READ, 4, XQSPIPSS_TXD_00_00_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_FAST_READ, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_DUAL_READ, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	{ XQSPIPSS_FLASH_OPCODE_QUAD_READ, 1, XQSPIPSS_TXD_00_01_OFFSET },
-	/* Add all the instructions supported by the flash device */
-};
-
-/**
- * xqspips_init_hw - Initialize the hardware
- * @regs_base:		Base address of QSPI controller
- *
- * The default settings of the QSPI controller's configurable parameters on
- * reset are
- *	- Master mode
- * 	- Baud rate divisor is set to 2
- *	- Threshold value for TX FIFO not full interrupt is set to 1
- *	- Flash memory interface mode enabled
- *	- Size of the word to be transferred as 8 bit
- * This function performs the following actions
- *	- Disable and clear all the interrupts
- *	- Enable manual slave select
- *	- Enable manual start
- *	- Deselect all the chip select lines
- *	- Set the size of the word to be transferred as 32 bit
- *	- Set the little endian mode of TX FIFO and
- *	- Enable the QSPI controller
- **/
-void xqspips_init_hw(void __iomem *regs_base)
+static int zynq_qspi_ofdata_to_platdata(struct udevice *bus)
 {
-	u32 config_reg;
+	struct zynq_qspi_platdata *plat = bus->platdata;
+	const void *blob = gd->fdt_blob;
+	int node = dev_of_offset(bus);
 
-	xqspips_write(regs_base + XQSPIPSS_ENABLE_OFFSET,
-		~XQSPIPSS_ENABLE_ENABLE_MASK);
-	xqspips_write(regs_base + XQSPIPSS_IDIS_OFFSET, 0x7F);
+	plat->regs = (struct zynq_qspi_regs *)fdtdec_get_addr(blob,
+							      node, "reg");
 
-	/* Disable linear mode as the boot loader may have used it */
-	xqspips_write(regs_base + XQSPIPSS_LINEAR_CFG_OFFSET, 0);
+	/* FIXME: Use 166MHz as a suitable default */
+	plat->frequency = fdtdec_get_int(blob, node, "spi-max-frequency",
+					166666666);
+	plat->speed_hz = plat->frequency / 2;
 
-	/* Clear the RX FIFO */
-	while (xqspips_read(regs_base + XQSPIPSS_STATUS_OFFSET) &
-			XQSPIPSS_IXR_RXNEMTY_MASK)
-		xqspips_read(regs_base + XQSPIPSS_RXD_OFFSET);
-
-	xqspips_write(regs_base + XQSPIPSS_STATUS_OFFSET , 0x7F);
-	config_reg = xqspips_read(regs_base + XQSPIPSS_CONFIG_OFFSET);
-	config_reg &= 0xFBFFFFFF; /* Set little endian mode of TX FIFO */
-	config_reg |= 0x8000FCC1;
-	xqspips_write(regs_base + XQSPIPSS_CONFIG_OFFSET, config_reg);
-
-#ifdef CONFIG_XILINX_PSS_QSPI_USE_DUAL_FLASH
-	xqspips_write(regs_base + XQSPIPSS_LINEAR_CFG_OFFSET, 0x6400016B);
-#endif
-
-	xqspips_write(regs_base + XQSPIPSS_ENABLE_OFFSET,
-			XQSPIPSS_ENABLE_ENABLE_MASK);
-}
-
-/**
- * xqspips_copy_read_data - Copy data to RX buffer
- * @xqspi:	Pointer to the xqspips structure
- * @data:	The 32 bit variable where data is stored
- * @size:	Number of bytes to be copied from data to RX buffer
- **/
-static void xqspips_copy_read_data(struct xqspips *xqspi, u32 data, u8 size)
-{
-	u8 byte3;
-
-#ifdef DEBUG
-	printf("%s data 0x%04x rxbuf addr: 0x%08x size %d\n",
-		__FUNCTION__, data, (unsigned)(xqspi->rxbuf), size);
-#endif
-
-	if (xqspi->rxbuf) {
-		switch (size) {
-		case 1:
-			*((u8 *)xqspi->rxbuf) = data;
-			xqspi->rxbuf += 1;
-			break;
-		case 2:
-			*((u16 *)xqspi->rxbuf) = data;
-			xqspi->rxbuf += 2;
-			break;
-		case 3:
-			*((u16 *)xqspi->rxbuf) = data;
-			xqspi->rxbuf += 2;
-			byte3 = (u8)(data >> 16);
-			*((u8 *)xqspi->rxbuf) = byte3;
-			xqspi->rxbuf += 1;
-			break;
-		case 4:
-#ifdef LINUX_ONLY_NOT_UBOOT
-			(*(u32 *)xqspi->rxbuf) = data;
-#else
-			/* Can not assume word aligned buffer */
-			memcpy(xqspi->rxbuf, &data,  size);
-#endif
-			xqspi->rxbuf += 4;
-			break;
-		default:
-			/* This will never execute */
-			break;
-		}
-	}
-	xqspi->bytes_to_receive -= size;
-	if (xqspi->bytes_to_receive < 0) {
-		xqspi->bytes_to_receive = 0;
-	}
-}
-
-/**
- * xqspips_copy_write_data - Copy data from TX buffer
- * @xqspi:	Pointer to the xqspips structure
- * @data:	Pointer to the 32 bit variable where data is to be copied
- * @size:	Number of bytes to be copied from TX buffer to data
- **/
-static void xqspips_copy_write_data(struct xqspips *xqspi, u32 *data, u8 size)
-{
-
-	if (xqspi->txbuf) {
-		switch (size) {
-		case 1:
-			*data = *((u8 *)xqspi->txbuf);
-			xqspi->txbuf += 1;
-			*data |= 0xFFFFFF00;
-			break;
-		case 2:
-			*data = *((u16 *)xqspi->txbuf);
-			xqspi->txbuf += 2;
-			*data |= 0xFFFF0000;
-			break;
-		case 3:
-			*data = *((u16 *)xqspi->txbuf);
-			xqspi->txbuf += 2;
-			*data |= (*((u8 *)xqspi->txbuf) << 16);
-			xqspi->txbuf += 1;
-			*data |= 0xFF000000;
-			break;
-		case 4:
-#ifdef LINUX_ONLY_NOT_UBOOT
-			*data = *((u32 *)xqspi->txbuf);
-#else
-			/* Can not assume word aligned buffer */
-			memcpy(data, xqspi->txbuf,  size);
-#endif
-			xqspi->txbuf += 4;
-			break;
-		default:
-			/* This will never execute */
-			break;
-		}
-	} else
-		*data = 0;
-
-#ifdef DEBUG
-	printf("%s data 0x%08x txbuf addr: 0x%08x size %d\n",
-		__FUNCTION__, *data, (u32)xqspi->txbuf, size);
-#endif
-
-	xqspi->bytes_to_transfer -= size;
-	if (xqspi->bytes_to_transfer < 0) {
-		xqspi->bytes_to_transfer = 0;
-	}
-}
-
-/**
- * xqspips_chipselect - Select or deselect the chip select line
- * @qspi:	Pointer to the spi_device structure
- * @is_on:	Select(1) or deselect (0) the chip select line
- **/
-static void xqspips_chipselect(struct spi_device *qspi, int is_on)
-{
-	struct xqspips *xqspi = spi_master_get_devdata(qspi->master);
-	u32 config_reg;
-	unsigned long flags;
-
-#ifdef DEBUG
-	printf("xqspips_chipselect: is_on: %d\n", is_on);
-#endif
-
-	spin_lock_irqsave(&xqspi->config_reg_lock, flags);
-
-	config_reg = xqspips_read(xqspi->regs + XQSPIPSS_CONFIG_OFFSET);
-
-	if (is_on) {
-		/* Select the slave */
-		config_reg &= ~XQSPIPSS_CONFIG_SSCTRL_MASK;
-		config_reg |= (((~(0x0001 << qspi->chip_select)) << 10) &
-				XQSPIPSS_CONFIG_SSCTRL_MASK);
-	} else
-		/* Deselect the slave */
-		config_reg |= XQSPIPSS_CONFIG_SSCTRL_MASK;
-
-	xqspips_write(xqspi->regs + XQSPIPSS_CONFIG_OFFSET, config_reg);
-
-	spin_unlock_irqrestore(&xqspi->config_reg_lock, flags);
-}
-
-/**
- * xqspips_setup_transfer - Configure QSPI controller for specified transfer
- * @qspi:	Pointer to the spi_device structure
- * @transfer:	Pointer to the spi_transfer structure which provides information
- *		about next transfer setup parameters
- *
- * Sets the operational mode of QSPI controller for the next QSPI transfer and
- * sets the requested clock frequency.
- *
- * returns:	0 on success and -EINVAL on invalid input parameter
- *
- * Note: If the requested frequency is not an exact match with what can be
- * obtained using the prescalar value, the driver sets the clock frequency which
- * is lower than the requested frequency (maximum lower) for the transfer. If
- * the requested frequency is higher or lower than that is supported by the QSPI
- * controller the driver will set the highest or lowest frequency supported by
- * controller.
- **/
-int xqspips_setup_transfer(struct spi_device *qspi,
-		struct spi_transfer *transfer)
-{
-	struct xqspips *xqspi = spi_master_get_devdata(qspi->master);
-	u8 bits_per_word;
-	u32 config_reg;
-	u32 req_hz;
-	u32 baud_rate_val = 0;
-	unsigned long flags;
-
-#ifdef DEBUG
-	printf("xqspips_setup_transfer: qspi: 0x%08x transfer: 0x%08x\n",
-		(u32)qspi, (u32)transfer);
-#endif
-	bits_per_word = (transfer) ?
-			transfer->bits_per_word : qspi->bits_per_word;
-	req_hz = (transfer) ? transfer->speed_hz : qspi->max_speed_hz;
-
-	if (qspi->mode & ~MODEBITS) {
-		dev_err(&qspi->dev, "%s, unsupported mode bits %x\n",
-			__func__, qspi->mode & ~MODEBITS);
-		return -EINVAL;
-	}
-
-	if (bits_per_word != 32) {
-		bits_per_word = 32;
-	}
-
-	spin_lock_irqsave(&xqspi->config_reg_lock, flags);
-
-	config_reg = xqspips_read(xqspi->regs + XQSPIPSS_CONFIG_OFFSET);
-
-	/* Set the QSPI clock phase and clock polarity */
-	config_reg &= (~XQSPIPSS_CONFIG_CPHA_MASK) &
-				(~XQSPIPSS_CONFIG_CPOL_MASK);
-	if (qspi->mode & SPI_CPHA)
-		config_reg |= XQSPIPSS_CONFIG_CPHA_MASK;
-	if (qspi->mode & SPI_CPOL)
-		config_reg |= XQSPIPSS_CONFIG_CPOL_MASK;
-
-	/* Set the clock frequency */
-	if (xqspi->speed_hz != req_hz) {
-		baud_rate_val = 0;
-		while ((baud_rate_val < 8)  &&
-			(xqspi->input_clk_hz / (2 << baud_rate_val)) > req_hz) {
-				baud_rate_val++;
-		}
-		config_reg &= 0xFFFFFFC7;
-		config_reg |= (baud_rate_val << 3);
-		xqspi->speed_hz = req_hz;
-	}
-
-	xqspips_write(xqspi->regs + XQSPIPSS_CONFIG_OFFSET, config_reg);
-
-	spin_unlock_irqrestore(&xqspi->config_reg_lock, flags);
-
-#ifdef DEBUG
-	dev_dbg(&qspi->dev, "%s, mode %d, %u bits/w, %u clock speed\n",
-		__func__, qspi->mode & MODEBITS, qspi->bits_per_word,
-		xqspi->speed_hz);
-#endif
+	debug("%s: regs=%p max-frequency=%d\n", __func__,
+	      plat->regs, plat->frequency);
 
 	return 0;
 }
 
-#ifdef LINUX_ONLY_NOT_UBOOT
-/**
- * xqspips_setup - Configure the QSPI controller
- * @qspi:	Pointer to the spi_device structure
- *
- * Sets the operational mode of QSPI controller for the next QSPI transfer, baud
- * rate and divisor value to setup the requested qspi clock.
- *
- * returns:	0 on success and error value on failure
- **/
-static int xqspips_setup(struct spi_device *qspi)
+static void zynq_qspi_init_hw(struct zynq_qspi_priv *priv)
 {
+	struct zynq_qspi_regs *regs = priv->regs;
+	u32 confr;
 
-	if (qspi->mode & SPI_LSB_FIRST)
-		return -EINVAL;
+	/* Disable QSPI */
+	writel(~ZYNQ_QSPI_ENR_SPI_EN_MASK, &regs->enr);
 
-	if (!qspi->max_speed_hz)
-		return -EINVAL;
+	/* Disable Interrupts */
+	writel(ZYNQ_QSPI_IXR_ALL_MASK, &regs->idr);
 
-	if (!qspi->bits_per_word)
-		qspi->bits_per_word = 32;
+	/* Clear the TX and RX threshold reg */
+	writel(ZYNQ_QSPI_TXFIFO_THRESHOLD, &regs->txftr);
+	writel(ZYNQ_QSPI_RXFIFO_THRESHOLD, &regs->rxftr);
 
-	return xqspips_setup_transfer(qspi, NULL);
+	/* Clear the RX FIFO */
+	while (readl(&regs->isr) & ZYNQ_QSPI_IXR_RXNEMPTY_MASK)
+		readl(&regs->drxr);
+
+	/* Clear Interrupts */
+	writel(ZYNQ_QSPI_IXR_ALL_MASK, &regs->isr);
+
+	/* Manual slave select and Auto start */
+	confr = readl(&regs->cr);
+	confr &= ~ZYNQ_QSPI_CR_MSA_MASK;
+	confr |= ZYNQ_QSPI_CR_IFMODE_MASK | ZYNQ_QSPI_CR_MCS_MASK |
+		ZYNQ_QSPI_CR_PCS_MASK | ZYNQ_QSPI_CR_FW_MASK |
+		ZYNQ_QSPI_CR_MSTREN_MASK;
+	writel(confr, &regs->cr);
+
+	/* Disable the LQSPI feature */
+	confr = readl(&regs->lqspicfg);
+	confr &= ~ZYNQ_QSPI_LQSPICFG_LQMODE_MASK;
+	writel(confr, &regs->lqspicfg);
+
+	/* Enable SPI */
+	writel(ZYNQ_QSPI_ENR_SPI_EN_MASK, &regs->enr);
 }
-#endif
 
-/**
- * xqspips_fill_tx_fifo - Fills the TX FIFO with as many bytes as possible
- * @xqspi:	Pointer to the xqspips structure
- **/
-static void xqspips_fill_tx_fifo(struct xqspips *xqspi)
+static int zynq_qspi_probe(struct udevice *bus)
+{
+	struct zynq_qspi_platdata *plat = dev_get_platdata(bus);
+	struct zynq_qspi_priv *priv = dev_get_priv(bus);
+
+	priv->regs = plat->regs;
+	priv->fifo_depth = ZYNQ_QSPI_FIFO_DEPTH;
+
+	/* init the zynq spi hw */
+	zynq_qspi_init_hw(priv);
+
+	return 0;
+}
+
+/*
+ * zynq_qspi_read_data - Copy data to RX buffer
+ * @zqspi:	Pointer to the zynq_qspi structure
+ * @data:	The 32 bit variable where data is stored
+ * @size:	Number of bytes to be copied from data to RX buffer
+ */
+static void zynq_qspi_read_data(struct zynq_qspi_priv *priv, u32 data, u8 size)
+{
+	u8 byte3;
+
+	debug("%s: data 0x%04x rx_buf addr: 0x%08x size %d\n", __func__ ,
+	      data, (unsigned)(priv->rx_buf), size);
+
+	if (priv->rx_buf) {
+		switch (size) {
+		case 1:
+			*((u8 *)priv->rx_buf) = data;
+			priv->rx_buf += 1;
+			break;
+		case 2:
+			*((u16 *)priv->rx_buf) = data;
+			priv->rx_buf += 2;
+			break;
+		case 3:
+			*((u16 *)priv->rx_buf) = data;
+			priv->rx_buf += 2;
+			byte3 = (u8)(data >> 16);
+			*((u8 *)priv->rx_buf) = byte3;
+			priv->rx_buf += 1;
+			break;
+		case 4:
+			/* Can not assume word aligned buffer */
+			memcpy(priv->rx_buf, &data, size);
+			priv->rx_buf += 4;
+			break;
+		default:
+			/* This will never execute */
+			break;
+		}
+	}
+	priv->bytes_to_receive -= size;
+	if (priv->bytes_to_receive < 0)
+		priv->bytes_to_receive = 0;
+}
+
+/*
+ * zynq_qspi_write_data - Copy data from TX buffer
+ * @zqspi:	Pointer to the zynq_qspi structure
+ * @data:	Pointer to the 32 bit variable where data is to be copied
+ * @size:	Number of bytes to be copied from TX buffer to data
+ */
+static void zynq_qspi_write_data(struct  zynq_qspi_priv *priv,
+		u32 *data, u8 size)
+{
+	if (priv->tx_buf) {
+		switch (size) {
+		case 1:
+			*data = *((u8 *)priv->tx_buf);
+			priv->tx_buf += 1;
+			*data |= 0xFFFFFF00;
+			break;
+		case 2:
+			*data = *((u16 *)priv->tx_buf);
+			priv->tx_buf += 2;
+			*data |= 0xFFFF0000;
+			break;
+		case 3:
+			*data = *((u16 *)priv->tx_buf);
+			priv->tx_buf += 2;
+			*data |= (*((u8 *)priv->tx_buf) << 16);
+			priv->tx_buf += 1;
+			*data |= 0xFF000000;
+			break;
+		case 4:
+			/* Can not assume word aligned buffer */
+			memcpy(data, priv->tx_buf, size);
+			priv->tx_buf += 4;
+			break;
+		default:
+			/* This will never execute */
+			break;
+		}
+	} else {
+		*data = 0;
+	}
+
+	debug("%s: data 0x%08x tx_buf addr: 0x%08x size %d\n", __func__,
+	      *data, (u32)priv->tx_buf, size);
+
+	priv->bytes_to_transfer -= size;
+	if (priv->bytes_to_transfer < 0)
+		priv->bytes_to_transfer = 0;
+}
+
+static void zynq_qspi_chipselect(struct  zynq_qspi_priv *priv, int is_on)
+{
+	u32 confr;
+	struct zynq_qspi_regs *regs = priv->regs;
+
+	confr = readl(&regs->cr);
+
+	if (is_on) {
+		/* Select the slave */
+		confr &= ~ZYNQ_QSPI_CR_SS_MASK;
+		confr |= (~(1 << priv->cs) << ZYNQ_QSPI_CR_SS_SHIFT) &
+					ZYNQ_QSPI_CR_SS_MASK;
+	} else
+		/* Deselect the slave */
+		confr |= ZYNQ_QSPI_CR_SS_MASK;
+
+	writel(confr, &regs->cr);
+}
+
+/*
+ * zynq_qspi_fill_tx_fifo - Fills the TX FIFO with as many bytes as possible
+ * @zqspi:	Pointer to the zynq_qspi structure
+ */
+static void zynq_qspi_fill_tx_fifo(struct zynq_qspi_priv *priv, u32 size)
 {
 	u32 data = 0;
+	u32 fifocount = 0;
+	unsigned len, offset;
+	struct zynq_qspi_regs *regs = priv->regs;
+	static const unsigned offsets[4] = {
+		ZYNQ_QSPI_TXD_00_00_OFFSET, ZYNQ_QSPI_TXD_00_01_OFFSET,
+		ZYNQ_QSPI_TXD_00_10_OFFSET, ZYNQ_QSPI_TXD_00_11_OFFSET };
 
-	while ((!(xqspips_read(xqspi->regs + XQSPIPSS_STATUS_OFFSET) &
-		XQSPIPSS_IXR_TXFULL_MASK)) && (xqspi->bytes_to_transfer > 0)) {
-		if (xqspi->bytes_to_transfer < 4) {
-			xqspips_copy_write_data(xqspi, &data,
-				xqspi->bytes_to_transfer);
+	while ((fifocount < size) &&
+			(priv->bytes_to_transfer > 0)) {
+		if (priv->bytes_to_transfer >= 4) {
+			if (priv->tx_buf) {
+				memcpy(&data, priv->tx_buf, 4);
+				priv->tx_buf += 4;
+			} else {
+				data = 0;
+			}
+			writel(data, &regs->txd0r);
+			priv->bytes_to_transfer -= 4;
+			fifocount++;
 		} else {
-			xqspips_copy_write_data(xqspi, &data, 4);
+			/* Write TXD1, TXD2, TXD3 only if TxFIFO is empty. */
+			if (!(readl(&regs->isr)
+					& ZYNQ_QSPI_IXR_TXOW_MASK) &&
+					!priv->rx_buf)
+				return;
+			len = priv->bytes_to_transfer;
+			zynq_qspi_write_data(priv, &data, len);
+			offset = (priv->rx_buf) ? offsets[0] : offsets[len];
+			writel(data, &regs->cr + (offset / 4));
 		}
-
-		xqspips_write(xqspi->regs + XQSPIPSS_TXD_00_00_OFFSET, data);
 	}
 }
 
-/**
- * xqspips_irq - Interrupt service routine of the QSPI controller
- * @irq:	IRQ number
- * @dev_id:	Pointer to the xqspi structure
+/*
+ * zynq_qspi_irq_poll - Interrupt service routine of the QSPI controller
+ * @zqspi:	Pointer to the zynq_qspi structure
  *
  * This function handles TX empty and Mode Fault interrupts only.
  * On TX empty interrupt this function reads the received data from RX FIFO and
@@ -640,130 +334,85 @@ static void xqspips_fill_tx_fifo(struct xqspips *xqspi)
  * the SPI subsystem will identify the error as the remaining bytes to be
  * transferred is non-zero.
  *
- * returns:	IRQ_HANDLED always
- **/
-#ifdef LINUX_ONLY_NOT_UBOOT
-static irqreturn_t xqspips_irq(int irq, void *dev_id)
+ * returns:	0 for poll timeout
+ *		1 transfer operation complete
+ */
+static int zynq_qspi_irq_poll(struct zynq_qspi_priv *priv)
 {
-	struct xqspips *xqspi = dev_id;
-#else
-static int xqspips_irq_poll(struct xqspips *xqspi)
-{
-	int max_loop;
-#endif
-	u32 intr_status;
+	struct zynq_qspi_regs *regs = priv->regs;
+	u32 rxindex = 0;
+	u32 rxcount;
+	u32 status, timeout;
 
-#ifdef DEBUG
-	printf("xqspips_irq_poll: xqspi: 0x%08x\n",
-		(u32)xqspi);
-#endif
-
-#ifdef LINUX_ONLY_NOT_UBOOT
-	intr_status = xqspips_read(xqspi->regs + XQSPIPSS_STATUS_OFFSET);
-#else
-	/* u-boot: Poll until any of the interrupt status bits are set */
-	max_loop = 0;
+	/* Poll until any of the interrupt status bits are set */
+	timeout = get_timer(0);
 	do {
-		intr_status = xqspips_read(xqspi->regs +
-				XQSPIPSS_STATUS_OFFSET);
-		max_loop ++;
-	} while ((intr_status == 0) && (max_loop < 100000));
-	if (intr_status == 0) {
-		printf("xqspips_irq_poll: timeout\n");
-		return 0;
+		status = readl(&regs->isr);
+	} while ((status == 0) &&
+		(get_timer(timeout) < CONFIG_SYS_ZYNQ_QSPI_WAIT));
+
+	if (status == 0) {
+		printf("zynq_qspi_irq_poll: Timeout!\n");
+		return -ETIMEDOUT;
 	}
-#endif
 
-	xqspips_write(xqspi->regs + XQSPIPSS_STATUS_OFFSET , intr_status);
-#ifndef LINUX_ONLY_NOT_UBOOT
-	/* u-boot: Disable all interrupts */
-	xqspips_write(xqspi->regs + XQSPIPSS_IDIS_OFFSET,
-			XQSPIPSS_IXR_ALL_MASK);
-#endif
+	writel(status, &regs->isr);
 
-	if (intr_status & XQSPIPSS_IXR_MODF_MASK) {
-		/* Indicate that transfer is completed, the SPI subsystem will
-		 * identify the error as the remaining bytes to be
-		 * transferred is non-zero */
-#ifdef LINUX_ONLY_NOT_UBOOT
-		complete(&xqspi->done);
-#else
-		/* u-boot: return "operation complete" */
-		xqspips_write(xqspi->regs + XQSPIPSS_IDIS_OFFSET,
-			XQSPIPSS_IXR_ALL_MASK);
-		return 1;
-#endif
-	} else if ((intr_status & XQSPIPSS_IXR_TXNFULL_MASK) ||
-		   (intr_status & XQSPIPSS_IXR_RXNEMTY_MASK)) {
-		/* This bit is set when Tx FIFO has < THRESHOLD entries. We have
-		   the THRESHOLD value set to 1, so this bit indicates Tx FIFO
-		   is empty */
-		u32 config_reg;
-
-		/* Read out the data from the RX FIFO */
-		while (xqspips_read(xqspi->regs + XQSPIPSS_STATUS_OFFSET) &
-			XQSPIPSS_IXR_RXNEMTY_MASK) {
+	/* Disable all interrupts */
+	writel(ZYNQ_QSPI_IXR_ALL_MASK, &regs->idr);
+	if ((status & ZYNQ_QSPI_IXR_TXOW_MASK) ||
+	    (status & ZYNQ_QSPI_IXR_RXNEMPTY_MASK)) {
+		/*
+		 * This bit is set when Tx FIFO has < THRESHOLD entries. We have
+		 * the THRESHOLD value set to 1, so this bit indicates Tx FIFO
+		 * is empty
+		 */
+		rxcount = priv->bytes_to_receive - priv->bytes_to_transfer;
+		rxcount = (rxcount % 4) ? ((rxcount/4)+1) : (rxcount/4);
+		while ((rxindex < rxcount) &&
+				(rxindex < ZYNQ_QSPI_RXFIFO_THRESHOLD)) {
+			/* Read out the data from the RX FIFO */
 			u32 data;
+			data = readl(&regs->drxr);
 
-			data = xqspips_read(xqspi->regs + XQSPIPSS_RXD_OFFSET);
-
-			if ((xqspi->inst_response) &&
-				(!((xqspi->curr_inst->opcode ==
-					XQSPIPSS_FLASH_OPCODE_RDSR1) ||
-				(xqspi->curr_inst->opcode ==
-					XQSPIPSS_FLASH_OPCODE_RDSR2)))) {
-				xqspi->inst_response = 0;
-				xqspips_copy_read_data(xqspi, data,
-					xqspi->curr_inst->inst_size);
-			} else if (xqspi->bytes_to_receive < 4)
-				xqspips_copy_read_data(xqspi, data,
-					xqspi->bytes_to_receive);
-			else
-				xqspips_copy_read_data(xqspi, data, 4);
+			if (priv->bytes_to_receive >= 4) {
+				if (priv->rx_buf) {
+					memcpy(priv->rx_buf, &data, 4);
+					priv->rx_buf += 4;
+				}
+				priv->bytes_to_receive -= 4;
+			} else {
+				zynq_qspi_read_data(priv, data,
+						    priv->bytes_to_receive);
+			}
+			rxindex++;
 		}
 
-		if (xqspi->bytes_to_transfer) {
+		if (priv->bytes_to_transfer) {
 			/* There is more data to send */
-			xqspips_fill_tx_fifo(xqspi);
+			zynq_qspi_fill_tx_fifo(priv,
+					       ZYNQ_QSPI_RXFIFO_THRESHOLD);
 
-			xqspips_write(xqspi->regs + XQSPIPSS_IEN_OFFSET,
-					XQSPIPSS_IXR_ALL_MASK);
-
-			spin_lock(&xqspi->config_reg_lock);
-			config_reg = xqspips_read(xqspi->regs +
-						XQSPIPSS_CONFIG_OFFSET);
-
-			config_reg |= XQSPIPSS_CONFIG_MANSRT_MASK;
-			xqspips_write(xqspi->regs + XQSPIPSS_CONFIG_OFFSET,
-				config_reg);
-			spin_unlock(&xqspi->config_reg_lock);
+			writel(ZYNQ_QSPI_IXR_ALL_MASK, &regs->ier);
 		} else {
-			/* If transfer and receive is completed then only send
-			 * complete signal */
-			if (!xqspi->bytes_to_receive) {
-#ifdef LINUX_ONLY_NOT_UBOOT
-				complete(&xqspi->done);
-#else
-				/* u-boot: return "operation complete" */
-				xqspips_write(xqspi->regs +
-					XQSPIPSS_IDIS_OFFSET,
-					XQSPIPSS_IXR_ALL_MASK);
+			/*
+			 * If transfer and receive is completed then only send
+			 * complete signal
+			 */
+			if (!priv->bytes_to_receive) {
+				/* return operation complete */
+				writel(ZYNQ_QSPI_IXR_ALL_MASK,
+				       &regs->idr);
 				return 1;
-#endif
 			}
 		}
 	}
 
-#ifdef LINUX_ONLY_NOT_UBOOT
-	return IRQ_HANDLED;
-#else
-	/* u-boot: Transfer not complete */
 	return 0;
-#endif
 }
 
-/**
- * xqspips_start_transfer - Initiates the QSPI transfer
+/*
+ * zynq_qspi_start_transfer - Initiates the QSPI transfer
  * @qspi:	Pointer to the spi_device structure
  * @transfer:	Pointer to the spi_transfer structure which provide information
  *		about next transfer parameters
@@ -772,613 +421,210 @@ static int xqspips_irq_poll(struct xqspips *xqspi)
  * transfer to be completed.
  *
  * returns:	Number of bytes transferred in the last transfer
- **/
-static int xqspips_start_transfer(struct spi_device *qspi,
-			struct spi_transfer *transfer)
+ */
+static int zynq_qspi_start_transfer(struct zynq_qspi_priv *priv)
 {
-	struct xqspips *xqspi = spi_master_get_devdata(qspi->master);
-	u32 config_reg;
-	unsigned long flags;
 	u32 data = 0;
-	u8 instruction = 0;
-	u8 index;
-#ifdef HACK_WRITE_NO_DELAY
-	static bool no_delay = 0;
-#endif
+	struct zynq_qspi_regs *regs = priv->regs;
 
-#ifdef DEBUG
-	printf("%s: qspi: 0x%08x transfer: 0x%08x len: %d\n",
-		__func__, (u32)qspi, (u32)transfer, transfer->len);
-#endif
+	debug("%s: qspi: 0x%08x transfer: 0x%08x len: %d\n", __func__,
+	      (u32)priv, (u32)priv, priv->len);
 
-	xqspi->txbuf = transfer->tx_buf;
-	xqspi->rxbuf = transfer->rx_buf;
-	xqspi->bytes_to_transfer = transfer->len;
-	xqspi->bytes_to_receive = transfer->len;
+	priv->bytes_to_transfer = priv->len;
+	priv->bytes_to_receive = priv->len;
 
-#ifdef HACK_WRITE_NO_DELAY
-	if (no_delay) {
-		/* Indicates Page programm command + address is already in Tx
-		 * FIFO. We need to receive extra 4 bytes for command + address
-		 */
-		xqspi->bytes_to_receive += 4;
-		no_delay = 0;
-	}
-#endif
+	if (priv->len < 4)
+		zynq_qspi_fill_tx_fifo(priv, priv->len);
+	else
+		zynq_qspi_fill_tx_fifo(priv, priv->fifo_depth);
 
-	if (xqspi->txbuf)
-		instruction = *(u8 *)xqspi->txbuf;
+	writel(ZYNQ_QSPI_IXR_ALL_MASK, &regs->ier);
 
-	if (instruction && xqspi->is_inst) {
-		for (index = 0 ; index < ARRAY_SIZE(flash_inst); index++)
-			if (instruction == flash_inst[index].opcode)
-				break;
+	/* wait for completion */
+	do {
+		data = zynq_qspi_irq_poll(priv);
+	} while (data == 0);
 
-		/* Instruction might have already been transmitted. This is a
-		 * 'data only' transfer */
-		if (index == ARRAY_SIZE(flash_inst))
-			goto xfer_data;
-
-		xqspi->curr_inst = &flash_inst[index];
-		xqspi->inst_response = 1;
-
-#ifdef CONFIG_XILINX_PSS_QSPI_USE_DUAL_FLASH
-		/* In case of dual memories, convert 25 bit address to 24 bit
-		 * address before transmitting to the 2 memories
-		 */
-		if ((instruction == XQSPIPSS_FLASH_OPCODE_PP) ||
-		    (instruction == XQSPIPSS_FLASH_OPCODE_SE) ||
-		    (instruction == XQSPIPSS_FLASH_OPCODE_BE_32K) ||
-		    (instruction == XQSPIPSS_FLASH_OPCODE_BE_4K) ||
-		    (instruction == XQSPIPSS_FLASH_OPCODE_BE) ||
-		    (instruction == XQSPIPSS_FLASH_OPCODE_NORM_READ) ||
-		    (instruction == XQSPIPSS_FLASH_OPCODE_FAST_READ) ||
-		    (instruction == XQSPIPSS_FLASH_OPCODE_DUAL_READ) ||
-		    (instruction == XQSPIPSS_FLASH_OPCODE_QUAD_READ)) {
-
-			u8 *ptr = (u8*) (xqspi->txbuf);
-			data = ((u32) ptr[1] << 24) | ((u32) ptr[2] << 16) |
-				((u32) ptr[3] << 8) | ((u32) ptr[4]);
-			data = data/2;
-			ptr[1] = (u8) (data >> 16);
-			ptr[2] = (u8) (data >> 8);
-			ptr[3] = (u8) (data);
-			xqspi->bytes_to_transfer -= 1;
-			xqspi->bytes_to_receive -= 1;
-		}
-#endif
-
-		/* Get the instruction */
-		data = 0;
-		xqspips_copy_write_data(xqspi, &data,
-			xqspi->curr_inst->inst_size);
-
-		/* Write the instruction to LSB of the FIFO. The core is
-		 * designed such that it is not necessary to check whether the
-		 * write FIFO is full before writing. However, write would be
-		 * delayed if the user tries to write when write FIFO is full
-		 */
-		xqspips_write(xqspi->regs + xqspi->curr_inst->offset, data);
-
-#ifdef HACK_WRITE_NO_DELAY
-		if (xqspi->curr_inst->opcode == XQSPIPSS_FLASH_OPCODE_PP) {
-			/* Write instruction + address to the Tx FIFO, but do
-			 * not start transmission yet. Wait for the next
-			 * spi_message with data, and start transmission after
-			 * data is filled into the FIFO
-			 */
-			no_delay = 1;
-			return (transfer->len);
-		}
-#endif
-
-		/* Read status register and Read ID instructions don't require
-		 * to ignore the extra bytes in response of instruction as
-		 * response contains the value */
-		if ((instruction == XQSPIPSS_FLASH_OPCODE_RDSR1) ||
-			(instruction == XQSPIPSS_FLASH_OPCODE_RDSR2) ||
-			(instruction == XQSPIPSS_FLASH_OPCODE_RDID)) {
-			if (xqspi->bytes_to_transfer < 4)
-				xqspi->bytes_to_transfer = 0;
-			else
-				xqspi->bytes_to_transfer -= 3;
-		}
-	}
-
-xfer_data:
-	INIT_COMPLETION(xqspi->done);
-
-	/* In case of Fast, Dual and Quad reads, transmit the instruction first.
-	 * Address and dummy byte should be transmitted after instruction
-	 * is transmitted */
-	if (((xqspi->is_inst == 0) && (xqspi->bytes_to_transfer)) ||
-	     ((xqspi->bytes_to_transfer) &&
-	      (instruction != XQSPIPSS_FLASH_OPCODE_FAST_READ) &&
-	      (instruction != XQSPIPSS_FLASH_OPCODE_DUAL_READ) &&
-	      (instruction != XQSPIPSS_FLASH_OPCODE_QUAD_READ)))
-		xqspips_fill_tx_fifo(xqspi);
-	xqspips_write(xqspi->regs + XQSPIPSS_IEN_OFFSET,
-			XQSPIPSS_IXR_ALL_MASK);
-	/* Start the transfer by enabling manual start bit */
-	spin_lock_irqsave(&xqspi->config_reg_lock, flags);
-	config_reg = xqspips_read(xqspi->regs +
-			XQSPIPSS_CONFIG_OFFSET) | XQSPIPSS_CONFIG_MANSRT_MASK;
-	xqspips_write(xqspi->regs + XQSPIPSS_CONFIG_OFFSET, config_reg);
-	spin_unlock_irqrestore(&xqspi->config_reg_lock, flags);
-
-	wait_for_completion(&xqspi->done);
-
-	return (transfer->len) - (xqspi->bytes_to_transfer);
+	return (priv->len) - (priv->bytes_to_transfer);
 }
 
-#ifdef LINUX_ONLY_NOT_UBOOT
-/**
- * xqspips_work_queue - Get the request from queue to perform transfers
- * @work:	Pointer to the work_struct structure
- **/
-static void xqspips_work_queue(struct work_struct *work)
-#else
-int
-xqspips_transfer(struct spi_device *qspi, struct spi_transfer *transfer)
-#endif
+static int zynq_qspi_transfer(struct zynq_qspi_priv *priv)
 {
-#ifdef LINUX_ONLY_NOT_UBOOT
-	struct xqspips *xqspi = container_of(work, struct xqspips, work);
-#else
-	struct xqspips *xqspi = spi_master_get_devdata(qspi->master);
-#endif
-	unsigned long flags;
+	unsigned cs_change = 1;
+	int status = 0;
 
-	spin_lock_irqsave(&xqspi->trans_queue_lock, flags);
-	xqspi->dev_busy = 1;
+	while (1) {
+		/* Select the chip if required */
+		if (cs_change)
+			zynq_qspi_chipselect(priv, 1);
 
-#ifdef DEBUG
-	printf("xqspips_transfer\n");
-#endif
+		cs_change = priv->cs_change;
 
-#ifdef LINUX_ONLY_NOT_UBOOT
-	/* Check if list is empty or queue is stoped */
-	if (list_empty(&xqspi->queue) ||
-		xqspi->queue_state == XQSPIPSS_QUEUE_STOPPED) {
-		xqspi->dev_busy = 0;
-		spin_unlock_irqrestore(&xqspi->trans_queue_lock, flags);
-		return;
-	}
-#endif
-
-#ifdef LINUX_ONLY_NOT_UBOOT
-	/* Keep requesting transfer till list is empty */
-	while (!list_empty(&xqspi->queue)) {
-		struct spi_message *msg;
-		struct spi_device *qspi;
-		struct spi_transfer *transfer = NULL;
-		unsigned cs_change = 1;
-		int status = 0;
-
-		msg = container_of(xqspi->queue.next, struct spi_message,
-					queue);
-		list_del_init(&msg->queue);
-		spin_unlock_irqrestore(&xqspi->trans_queue_lock, flags);
-		qspi = msg->spi;
-		xqspi->is_inst = 1;
-
-		list_for_each_entry(transfer, &msg->transfers, transfer_list) {
-#else
-	{
-		unsigned cs_change = 1;
-		int status = 0;
-
-		while (1) {
-#endif
-			if (transfer->bits_per_word || transfer->speed_hz) {
-				status =
-					xqspips_setup_transfer(qspi, transfer);
-				if (status < 0)
-					break;
-			}
-
-			/* Select the chip if required */
-			if (cs_change)
-				xqspips_chipselect(qspi, 1);
-
-			cs_change = transfer->cs_change;
-
-			if (!transfer->tx_buf && !transfer->rx_buf &&
-				transfer->len) {
-				status = -EINVAL;
-				break;
-			}
-
-			/* Request the transfer */
-			if (transfer->len) {
-				status =
-					xqspips_start_transfer(qspi, transfer);
-				xqspi->is_inst = 0;
-			}
-
-			if (status != transfer->len) {
-				if (status > 0)
-					status = -EMSGSIZE;
-				break;
-			}
-#ifdef LINUX_ONLY_NOT_UBOOT
-			msg->actual_length += status;
-#endif
-			status = 0;
-
-			if (transfer->delay_usecs)
-				udelay(transfer->delay_usecs);
-
-			if (cs_change)
-				/* Deselect the chip */
-				xqspips_chipselect(qspi, 0);
-
-#ifdef LINUX_ONLY_NOT_UBOOT
-			if (transfer->transfer_list.next == &msg->transfers)
-				break;
-		}
-
-		msg->status = status;
-		msg->complete(msg->context);
-#else
+		if (!priv->tx_buf && !priv->rx_buf && priv->len) {
+			status = -1;
 			break;
 		}
-#endif
 
-		xqspips_setup_transfer(qspi, NULL);
+		/* Request the transfer */
+		if (priv->len) {
+			status = zynq_qspi_start_transfer(priv);
+			priv->is_inst = 0;
+		}
 
-#ifdef LINUX_ONLY_NOT_UBOOT
-		if (!(status == 0 && cs_change))
-			xqspips_chipselect(qspi, 0);
-#endif
+		if (status != priv->len) {
+			if (status > 0)
+				status = -EMSGSIZE;
+			debug("zynq_qspi_transfer:%d len:%d\n",
+			      status, priv->len);
+			break;
+		}
+		status = 0;
 
-		spin_lock_irqsave(&xqspi->trans_queue_lock, flags);
+		if (cs_change)
+			/* Deselect the chip */
+			zynq_qspi_chipselect(priv, 0);
+
+		break;
 	}
-
-	xqspi->dev_busy = 0;
-	spin_unlock_irqrestore(&xqspi->trans_queue_lock, flags);
-
-#ifndef LINUX_ONLY_NOT_UBOOT
-	return 0;
-#endif
-}
-
-#ifdef LINUX_ONLY_NOT_UBOOT
-/**
- * xqspips_transfer - Add a new transfer request at the tail of work queue
- * @qspi:	Pointer to the spi_device structure
- * @message:	Pointer to the spi_transfer structure which provides information
- *		about next transfer parameters
- *
- * returns:	0 on success, -EINVAL on invalid input parameter and
- *		-ESHUTDOWN if queue is stopped by module unload function
- **/
-static int
-xqspips_transfer(struct spi_device *qspi, struct spi_message *message)
-{
-	struct xqspips *xqspi = spi_master_get_devdata(qspi->master);
-	struct spi_transfer *transfer;
-	unsigned long flags;
-
-	if (xqspi->queue_state == XQSPIPSS_QUEUE_STOPPED)
-		return -ESHUTDOWN;
-
-	message->actual_length = 0;
-	message->status = -EINPROGRESS;
-
-	/* Check each transfer's parameters */
-	list_for_each_entry(transfer, &message->transfers, transfer_list) {
-		u8 bits_per_word =
-			transfer->bits_per_word ? : qspi->bits_per_word;
-
-		bits_per_word = bits_per_word ? : 32;
-		if (!transfer->tx_buf && !transfer->rx_buf && transfer->len)
-			return -EINVAL;
-		/* QSPI controller supports only 32 bit transfers whereas higher
-		 * layer drivers request 8 bit transfers. Re-visit at a later
-		 * time */
-		/* if (bits_per_word != 32)
-			return -EINVAL; */
-	}
-
-	spin_lock_irqsave(&xqspi->trans_queue_lock, flags);
-	list_add_tail(&message->queue, &xqspi->queue);
-	if (!xqspi->dev_busy)
-		queue_work(xqspi->workqueue, &xqspi->work);
-	spin_unlock_irqrestore(&xqspi->trans_queue_lock, flags);
 
 	return 0;
 }
 
-/**
- * xqspips_start_queue - Starts the queue of the QSPI driver
- * @xqspi:	Pointer to the xqspips structure
- *
- * returns:	0 on success and -EBUSY if queue is already running or device is
- *		busy
- **/
-static inline int xqspips_start_queue(struct xqspips *xqspi)
+static int zynq_qspi_claim_bus(struct udevice *dev)
 {
-	unsigned long flags;
+	struct udevice *bus = dev->parent;
+	struct zynq_qspi_priv *priv = dev_get_priv(bus);
+	struct zynq_qspi_regs *regs = priv->regs;
 
-	spin_lock_irqsave(&xqspi->trans_queue_lock, flags);
-
-	if (xqspi->queue_state == XQSPIPSS_QUEUE_RUNNING || xqspi->dev_busy) {
-		spin_unlock_irqrestore(&xqspi->trans_queue_lock, flags);
-		return -EBUSY;
-	}
-
-	xqspi->queue_state = XQSPIPSS_QUEUE_RUNNING;
-	spin_unlock_irqrestore(&xqspi->trans_queue_lock, flags);
+	writel(ZYNQ_QSPI_ENR_SPI_EN_MASK, &regs->enr);
 
 	return 0;
 }
 
-/**
- * xqspips_stop_queue - Stops the queue of the QSPI driver
- * @xqspi:	Pointer to the xqspips structure
- *
- * This function waits till queue is empty and then stops the queue.
- * Maximum time out is set to 5 seconds.
- *
- * returns:	0 on success and -EBUSY if queue is not empty or device is busy
- **/
-static inline int xqspips_stop_queue(struct xqspips *xqspi)
+static int zynq_qspi_release_bus(struct udevice *dev)
 {
-	unsigned long flags;
-	unsigned limit = 500;
-	int ret = 0;
+	struct udevice *bus = dev->parent;
+	struct zynq_qspi_priv *priv = dev_get_priv(bus);
+	struct zynq_qspi_regs *regs = priv->regs;
 
-	if (xqspi->queue_state != XQSPIPSS_QUEUE_RUNNING)
-		return ret;
-
-	spin_lock_irqsave(&xqspi->trans_queue_lock, flags);
-
-	while ((!list_empty(&xqspi->queue) || xqspi->dev_busy) && limit--) {
-		spin_unlock_irqrestore(&xqspi->trans_queue_lock, flags);
-		msleep(10);
-		spin_lock_irqsave(&xqspi->trans_queue_lock, flags);
-	}
-
-	if (!list_empty(&xqspi->queue) || xqspi->dev_busy)
-		ret = -EBUSY;
-
-	if (ret == 0)
-		xqspi->queue_state = XQSPIPSS_QUEUE_STOPPED;
-
-	spin_unlock_irqrestore(&xqspi->trans_queue_lock, flags);
-
-	return ret;
-}
-
-/**
- * xqspips_destroy_queue - Destroys the queue of the QSPI driver
- * @xqspi:	Pointer to the xqspips structure
- *
- * returns:	0 on success and error value on failure
- **/
-static inline int xqspips_destroy_queue(struct xqspips *xqspi)
-{
-	int ret;
-
-	ret = xqspips_stop_queue(xqspi);
-	if (ret != 0)
-		return ret;
-
-	destroy_workqueue(xqspi->workqueue);
+	writel(~ZYNQ_QSPI_ENR_SPI_EN_MASK, &regs->enr);
 
 	return 0;
 }
 
-/**
- * xqspips_probe - Probe method for the QSPI driver
- * @dev:	Pointer to the platform_device structure
- *
- * This function initializes the driver data structures and the hardware.
- *
- * returns:	0 on success and error value on failure
- **/
-static int __devinit xqspips_probe(struct platform_device *dev)
+static int zynq_qspi_xfer(struct udevice *dev, unsigned int bitlen,
+		const void *dout, void *din, unsigned long flags)
 {
-	int ret = 0;
-	struct spi_master *master;
-	struct xqspips *xqspi;
-	struct resource *r;
-	struct xspi_platform_data *platform_info;
+	struct udevice *bus = dev->parent;
+	struct zynq_qspi_priv *priv = dev_get_priv(bus);
+	struct dm_spi_slave_platdata *slave_plat = dev_get_parent_platdata(dev);
 
-	master = spi_alloc_master(&dev->dev, sizeof(struct xqspips));
-	if (master == NULL)
-		return -ENOMEM;
+	priv->cs = slave_plat->cs;
+	priv->tx_buf = dout;
+	priv->rx_buf = din;
+	priv->len = bitlen / 8;
 
-	xqspi = spi_master_get_devdata(master);
-	platform_set_drvdata(dev, master);
+	debug("zynq_qspi_xfer: bus:%i cs:%i bitlen:%i len:%i flags:%lx\n",
+	      bus->seq, slave_plat->cs, bitlen, priv->len, flags);
 
-	platform_info = dev->dev.platform_data;
-	if (platform_info == NULL) {
-		ret = -ENODEV;
-		dev_err(&dev->dev, "platform data not available\n");
-		goto put_master;
-	}
+	/*
+	 * Festering sore.
+	 * Assume that the beginning of a transfer with bits to
+	 * transmit must contain a device command.
+	 */
+	if (dout && flags & SPI_XFER_BEGIN)
+		priv->is_inst = 1;
+	else
+		priv->is_inst = 0;
 
-	r = platform_get_resource(dev, IORESOURCE_MEM, 0);
-	if (r == NULL) {
-		ret = -ENODEV;
-		dev_err(&dev->dev, "platform_get_resource failed\n");
-		goto put_master;
-	}
+	if (flags & SPI_XFER_END)
+		priv->cs_change = 1;
+	else
+		priv->cs_change = 0;
 
-	if (!request_mem_region(r->start,
-			r->end - r->start + 1, dev->name)) {
-		ret = -ENXIO;
-		dev_err(&dev->dev, "request_mem_region failed\n");
-		goto put_master;
-	}
+	zynq_qspi_transfer(priv);
 
-	xqspi->regs = ioremap(r->start, r->end - r->start + 1);
-	if (xqspi->regs == NULL) {
-		ret = -ENOMEM;
-		dev_err(&dev->dev, "ioremap failed\n");
-		goto release_mem;
-	}
-
-	xqspi->irq = platform_get_irq(dev, 0);
-	if (xqspi->irq < 0) {
-		ret = -ENXIO;
-		dev_err(&dev->dev, "irq resource not found\n");
-		goto unmap_io;
-	}
-
-	ret = request_irq(xqspi->irq, xqspips_irq, 0, dev->name, xqspi);
-	if (ret != 0) {
-		ret = -ENXIO;
-		dev_err(&dev->dev, "request_irq failed\n");
-		goto unmap_io;
-	}
-
-	/* QSPI controller initializations */
-	xqspips_init_hw(xqspi->regs);
-
-	init_completion(&xqspi->done);
-	master->bus_num = platform_info->bus_num;
-	master->num_chipselect = platform_info->num_chipselect;
-	master->setup = xqspips_setup;
-	master->transfer = xqspips_transfer;
-	xqspi->input_clk_hz = platform_info->speed_hz;
-	xqspi->speed_hz = platform_info->speed_hz / 2;
-	xqspi->dev_busy = 0;
-
-	INIT_LIST_HEAD(&xqspi->queue);
-	spin_lock_init(&xqspi->trans_queue_lock);
-	spin_lock_init(&xqspi->config_reg_lock);
-
-	xqspi->queue_state = XQSPIPSS_QUEUE_STOPPED;
-	xqspi->dev_busy = 0;
-
-	INIT_WORK(&xqspi->work, xqspips_work_queue);
-	xqspi->workqueue =
-		create_singlethread_workqueue(dev_name(&master->dev));
-	if (!xqspi->workqueue) {
-		ret = -ENOMEM;
-		dev_err(&dev->dev, "problem initializing queue\n");
-		goto free_irq;
-	}
-
-	ret = xqspips_start_queue(xqspi);
-	if (ret != 0) {
-		dev_err(&dev->dev, "problem starting queue\n");
-		goto remove_queue;
-	}
-
-	ret = spi_register_master(master);
-	if (ret) {
-		dev_err(&dev->dev, "spi_register_master failed\n");
-		goto remove_queue;
-	}
-
-	dev_info(&dev->dev, "at 0x%08X mapped to 0x%08X, irq=%d\n", r->start,
-		 (u32 __force)xqspi->regs, xqspi->irq);
-
-	return ret;
-
-remove_queue:
-	(void)xqspips_destroy_queue(xqspi);
-free_irq:
-	free_irq(xqspi->irq, xqspi);
-unmap_io:
-	iounmap(xqspi->regs);
-release_mem:
-	release_mem_region(r->start, r->end - r->start + 1);
-put_master:
-	platform_set_drvdata(dev, NULL);
-	spi_master_put(master);
-	return ret;
-}
-
-/**
- * xqspips_remove - Remove method for the QSPI driver
- * @dev:	Pointer to the platform_device structure
- *
- * This function is called if a device is physically removed from the system or
- * if the driver module is being unloaded. It frees all resources allocated to
- * the device.
- *
- * returns:	0 on success and error value on failure
- **/
-static int __devexit xqspips_remove(struct platform_device *dev)
-{
-	struct spi_master *master = platform_get_drvdata(dev);
-	struct xqspips *xqspi = spi_master_get_devdata(master);
-	struct resource *r;
-	int ret = 0;
-
-	r = platform_get_resource(dev, IORESOURCE_MEM, 0);
-	if (r == NULL) {
-		dev_err(&dev->dev, "platform_get_resource failed\n");
-		return -ENODEV;
-	}
-
-	ret = xqspips_destroy_queue(xqspi);
-	if (ret != 0)
-		return ret;
-
-	xqspips_write(xqspi->regs + XQSPIPSS_ENABLE_OFFSET,
-			~XQSPIPSS_ENABLE_ENABLE_MASK);
-
-	free_irq(xqspi->irq, xqspi);
-	iounmap(xqspi->regs);
-	release_mem_region(r->start, r->end - r->start + 1);
-
-	spi_unregister_master(master);
-	spi_master_put(master);
-
-	/* Prevent double remove */
-	platform_set_drvdata(dev, NULL);
-
-	dev_dbg(&dev->dev, "remove succeeded\n");
 	return 0;
 }
 
-/* Work with hotplug and coldplug */
-MODULE_ALIAS("platform:" DRIVER_NAME);
+static int zynq_qspi_set_speed(struct udevice *bus, uint speed)
+{
+	struct zynq_qspi_platdata *plat = bus->platdata;
+	struct zynq_qspi_priv *priv = dev_get_priv(bus);
+	struct zynq_qspi_regs *regs = priv->regs;
+	uint32_t confr;
+	u8 baud_rate_val = 0;
 
-/*
- * xqspips_driver - This structure defines the QSPI platform driver
- */
-static struct platform_driver xqspips_driver = {
-	.probe	= xqspips_probe,
-	.remove	= __devexit_p(xqspips_remove),
-	.suspend = NULL,
-	.resume = NULL,
-	.driver = {
-		.name = DRIVER_NAME,
-		.owner = THIS_MODULE,
-	},
+	if (speed > plat->frequency)
+		speed = plat->frequency;
+
+	/* Set the clock frequency */
+	confr = readl(&regs->cr);
+	if (speed == 0) {
+		/* Set baudrate x8, if the freq is 0 */
+		baud_rate_val = 0x2;
+	} else if (plat->speed_hz != speed) {
+		while ((baud_rate_val < ZYNQ_QSPI_CR_BAUD_MAX) &&
+		       ((plat->frequency /
+		       (2 << baud_rate_val)) > speed))
+			baud_rate_val++;
+
+		plat->speed_hz = speed / (2 << baud_rate_val);
+	}
+	confr &= ~ZYNQ_QSPI_CR_BAUD_MASK;
+	confr |= (baud_rate_val << ZYNQ_QSPI_CR_BAUD_SHIFT);
+
+	writel(confr, &regs->cr);
+	priv->freq = speed;
+
+	debug("%s: regs=%p, speed=%d\n", __func__, priv->regs, priv->freq);
+
+	return 0;
+}
+
+static int zynq_qspi_set_mode(struct udevice *bus, uint mode)
+{
+	struct zynq_qspi_priv *priv = dev_get_priv(bus);
+	struct zynq_qspi_regs *regs = priv->regs;
+	uint32_t confr;
+
+	/* Set the SPI Clock phase and polarities */
+	confr = readl(&regs->cr);
+	confr &= ~(ZYNQ_QSPI_CR_CPHA_MASK | ZYNQ_QSPI_CR_CPOL_MASK);
+
+	if (mode & SPI_CPHA)
+		confr |= ZYNQ_QSPI_CR_CPHA_MASK;
+	if (mode & SPI_CPOL)
+		confr |= ZYNQ_QSPI_CR_CPOL_MASK;
+
+	writel(confr, &regs->cr);
+	priv->mode = mode;
+
+	debug("%s: regs=%p, mode=%d\n", __func__, priv->regs, priv->mode);
+
+	return 0;
+}
+
+static const struct dm_spi_ops zynq_qspi_ops = {
+	.claim_bus      = zynq_qspi_claim_bus,
+	.release_bus    = zynq_qspi_release_bus,
+	.xfer           = zynq_qspi_xfer,
+	.set_speed      = zynq_qspi_set_speed,
+	.set_mode       = zynq_qspi_set_mode,
 };
 
-/**
- * xqspips_init - QSPI driver module initialization function
- *
- * returns:	0 on success and error value on failure
- **/
-static int __init xqspips_init(void)
-{
-	return platform_driver_register(&xqspips_driver);
-}
+static const struct udevice_id zynq_qspi_ids[] = {
+	{ .compatible = "xlnx,zynq-qspi-1.0" },
+	{ }
+};
 
-module_init(xqspips_init);
-
-/**
- * xqspips_exit - QSPI driver module exit function
- **/
-static void __exit xqspips_exit(void)
-{
-	platform_driver_unregister(&xqspips_driver);
-}
-
-module_exit(xqspips_exit);
-
-MODULE_AUTHOR("Xilinx, Inc.");
-MODULE_DESCRIPTION("Xilinx PSS QSPI driver");
-MODULE_LICENSE("GPL");
-
-#endif
+U_BOOT_DRIVER(zynq_qspi) = {
+	.name   = "zynq_qspi",
+	.id     = UCLASS_SPI,
+	.of_match = zynq_qspi_ids,
+	.ops    = &zynq_qspi_ops,
+	.ofdata_to_platdata = zynq_qspi_ofdata_to_platdata,
+	.platdata_auto_alloc_size = sizeof(struct zynq_qspi_platdata),
+	.priv_auto_alloc_size = sizeof(struct zynq_qspi_priv),
+	.probe  = zynq_qspi_probe,
+};

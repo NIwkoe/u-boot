@@ -3,7 +3,7 @@
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 
-/* U-boot: we already included these
+/* U-Boot: we already included these
 #include "zutil.h"
 #include "inftrees.h"
 #include "inflate.h"
@@ -66,9 +66,8 @@
       requires strm->avail_out >= 258 for each loop to avoid checking for
       output space.
  */
-void inflate_fast(strm, start)
-z_streamp strm;
-unsigned start;         /* inflate()'s starting value for strm->avail_out */
+void inflate_fast(z_streamp strm, unsigned start)
+/* start: inflate()'s starting value for strm->avail_out */
 {
     struct inflate_state FAR *state;
     unsigned char FAR *in;      /* local strm->next_in */

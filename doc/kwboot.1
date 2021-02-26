@@ -20,7 +20,7 @@ must conform to Marvell's BootROM firmware image format
 Following power-up or a system reset, system BootROM code polls the
 UART for a brief period of time, sensing a handshake message which
 initiates an image upload. This program sends this boot message until
-it receives a positive acknowledgement. The image is transfered using
+it receives a positive acknowledgement. The image is transferred using
 Xmodem.
 
 Additionally, this program implements a minimal terminal mode, which
@@ -79,6 +79,6 @@ Adjust the baud rate on \fITTY\fP. Default rate is 115200.
 
 Daniel Stodden <daniel.stodden@gmail.com>
 .br
-Luka Perkov <uboot@lukaperkov.net>
+Luka Perkov <luka@openwrt.org>
 .br
 David Purdy <david.c.purdy@gmail.com>

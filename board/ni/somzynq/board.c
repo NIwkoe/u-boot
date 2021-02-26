@@ -3,15 +3,14 @@
  */
 
 #include <common.h>
-#include <asm/arch/nand.h>
-#include <asm/arch/sdhci.h>
+#include <nand.h>
+#include <sdhci.h>
 #include <asm/io.h>
 #include <environment.h>
 #include <i2c.h>
 #include <jffs2/load_kernel.h>
 #include <miiphy.h>
 #include <netdev.h>
-#include <rtc_ds3232.h>
 #include <serial.h>
 #include <zynqpl.h>
 
@@ -25,27 +24,11 @@
 
 DECLARE_GLOBAL_DATA_PTR;
 
-/* Common IO for xgmac and xnand */
-/* Data Memory Barrier */
-#define SYNCHRONIZE_IO dmb()
-
-void XIo_Out32(u32 OutAddress, u32 Value)
-{
-	*(volatile u32 *) OutAddress = Value;
-	SYNCHRONIZE_IO;
-}
-
-u32 XIo_In32(u32 InAddress)
-{
-	volatile u32 temp = *(volatile u32 *)InAddress;
-	SYNCHRONIZE_IO;
-	return temp;
-}
-
 #ifdef CONFIG_FPGA
-Xilinx_desc fpga = XILINX_XC7Z020_DESC(0);
+xilinx_desc fpga = XILINX_XC7Z020_DESC(0);
 #endif
 
+#ifndef CONFIG_DM_SERIAL
 struct serial_device *default_serial_console(void)
 {
 #ifdef CONFIG_MFG
@@ -54,6 +37,7 @@ struct serial_device *default_serial_console(void)
 	return &null_serial_device;
 #endif
 }
+#endif
 
 int board_init(void)
 {
@@ -65,6 +49,7 @@ int board_init(void)
 	return 0;
 }
 
+#ifdef CONFIG_BOARD_LATE_INIT
 int board_late_init (void)
 {
 	u8 tmp;
@@ -76,11 +61,6 @@ int board_late_init (void)
 	int usbgadgetethaddr_missing;
 	int eth3addr_missing;
 #endif
-
-	/* Rev C sbRIO-9651 SOM CCA use DS3232, which require disabling of the
-	 * battery-backed 32kHz clock to conserve battery. */
-	rtc_ds3232_disable_bb32khz();
-
 	/*
 	 * Take usb phy out of reset
 	 */
@@ -98,12 +78,12 @@ int board_late_init (void)
 	eth3addr_missing = getenv("eth3addr") == NULL;
 	if (serial_missing || cca_serial_missing || ethaddr_missing ||
 	    eth1addr_missing || usbgadgetethaddr_missing || eth3addr_missing) {
-		u8 nand_buffer[nand_info[0].writesize];
+		u8 nand_buffer[nand_info[0]->writesize];
 		int nand_read_status;
 		char string[18];
-		size_t len = nand_info[0].writesize;
+		size_t len = nand_info[0]->writesize;
 
-		nand_read_status = nand_read(nand_info,
+		nand_read_status = nand_read(nand_info[0],
 		    getenv_ulong("backuppage", 16, CONFIG_BACKUP_PAGE), &len,
 		    nand_buffer);
 		if (serial_missing && !nand_read_status) {
@@ -167,87 +147,26 @@ int board_late_init (void)
 
 	return 0;
 }
+#endif /* !CONFIG_BOARD_LATE_INIT */
 
 #ifdef CONFIG_CMD_NET
 int board_eth_init(bd_t *bis)
 {
-	int retval;
-	int phy_addr;
-	char gemname[10];
-	int i;
-
-	retval = zynq_gem_initialize(bis);
-
-	/* sbRIO-9651 has a Micrel KSZ9031MNX Gigabit Ethernet PHY on zynq_gem0
-	 * and possibly another on zynq_gem1 on a daughter board. */
-	for (i = 0; i < CONFIG_ZYNQ_GEM_COUNT; i++) {
-		sprintf(gemname, "zynq_gem%d", i);
-
-		phy_addr = zynq_gem_get_phyaddr(gemname);
-
-		/* Write value to MMD Address 2h, Register 8h */
-		miiphy_write(gemname, phy_addr, 0xD, 0x0002);
-		miiphy_write(gemname, phy_addr, 0xE, 0x0008);
-		miiphy_write(gemname, phy_addr, 0xD, 0x4002);
-		/* Set RX_CLK Pad Skew [4:0] to 0b00000. Leave the GTX_CLK Pad
-		 * Skew [9:5] at its default of 0b01111. */
-		miiphy_write(gemname, phy_addr, 0xE, 0x01E0);
-	}
-
-	return retval;
+#if 0
+#else
+	/* Need to figure out where to put this code if DM is turned on */
+	return zynq_gem_initialize(bis);
+#endif
 }
 #endif
 
 #ifdef CONFIG_CMD_MMC
 int board_mmc_init(bd_t *bd)
 {
+#if 0
+	Move this to device tree
 	return zynq_sdhci_init(XPSS_SDIO0_BASEADDR, 50000000, 0, 0);
-}
 #endif
-
-#ifdef CONFIG_CMD_NAND
-
-#ifndef CONFIG_SYS_NAND_SELF_INIT
-#error CONFIG_SYS_NAND_SELF_INIT is required!
-#endif
-
-#if CONFIG_SYS_MAX_NAND_DEVICE > 1
-#error Only 1 NAND device is supported!
-#endif
-
-static struct nand_chip nand_chip;
-
-void board_nand_init()
-{
-	struct mtd_info *mtd = &nand_info[0];
-	loff_t off;
-	loff_t size;
-#if !defined(CONFIG_MFG)
-	struct mtd_device *dev;
-	u8 part_num;
-	struct part_info *part;
-#endif
-	mtd->priv = &nand_chip;
-	nand_chip.IO_ADDR_R = (void  __iomem *)CONFIG_SYS_NAND_BASE;
-	nand_chip.IO_ADDR_W = (void  __iomem *)CONFIG_SYS_NAND_BASE;
-
-	zynq_nand_init(&nand_chip);
-	nand_register(0);
-
-	/*
-	 * Unlock the entire flash for manufacturing
-	 */
-#if defined(CONFIG_MFG)
-	off = 0;
-#else
-	if (mtdparts_init() || find_dev_and_part("u-boot", &dev, &part_num, &part))
-		off = CONFIG_MTD_UBOOT_OFFSET + CONFIG_BOARD_SIZE_LIMIT;
-	else
-		off = part->size + part->offset;
-#endif
-	size = nand_info[0].size - off;
-
-	nand_unlock(&nand_info[0], off, size, 0);
 }
 #endif
 
@@ -261,7 +180,7 @@ int dram_init(void)
 /*
  * OK, and resets too.
  */
-void reset_cpu(ulong addr)
+void reset_misc(void)
 {
 	u8 tmp;
 
@@ -273,7 +192,7 @@ void reset_cpu(ulong addr)
 }
 
 #if defined(CONFIG_OF_BOARD_SETUP)
-void ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, bd_t *bd)
 {
 	const char *product_id_str;
 	u16 product_id_val;
@@ -285,5 +204,29 @@ void ft_board_setup(void *blob, bd_t *bd)
 		fdt_find_and_setprop(blob, "/", "DeviceCode",
 			&product_id_val, sizeof(product_id_val), 1);
 	}
+	return 0;
+}
+#endif
+
+/*
+ * Configure the RTC to not waste battery by disabling the BB32KHZ bit.
+ */
+#if defined(CONFIG_DM_RTC)
+#define RTC_STAT_REG_ADDR       0x0f
+#define RTC_STAT_BIT_BB32KHZ    0x40    /* Battery backed 32KHz Output  */
+void rtc_ds3232_disable_bb32khz (struct udevice *dev)
+{
+	int err;
+        uchar status;
+	struct udevice *rtc;
+
+	err = i2c_get_chip_for_busnum(0, CONFIG_I2C_RTC_ADDR, 1, &rtc);
+	if (err) {
+		debug("%s: Cannot find DS3232\n", __func__);
+		return;
+	}
+	dm_i2c_read(rtc, RTC_STAT_REG_ADDR, &status, 1);
+        status &= ~RTC_STAT_BIT_BB32KHZ;
+	dm_i2c_write(rtc, RTC_STAT_REG_ADDR, &status, 1);
 }
 #endif

@@ -3,23 +3,7 @@
  * Viresh Kumar, ST Microelectronics, viresh.kumar@st.com
  * Vipin Kumar, ST Microelectronics, vipin.kumar@st.com
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -28,8 +12,20 @@
 #include <asm/arch/spr_misc.h>
 #include <asm/arch/spr_defs.h>
 
-#define FALSE				0
-#define TRUE				(!FALSE)
+void spear_late_init(void)
+{
+	struct misc_regs *misc_p = (struct misc_regs *)CONFIG_SPEAR_MISCBASE;
+
+	writel(0x80000007, &misc_p->arb_icm_ml1);
+	writel(0x80000007, &misc_p->arb_icm_ml2);
+	writel(0x80000007, &misc_p->arb_icm_ml3);
+	writel(0x80000007, &misc_p->arb_icm_ml4);
+	writel(0x80000007, &misc_p->arb_icm_ml5);
+	writel(0x80000007, &misc_p->arb_icm_ml6);
+	writel(0x80000007, &misc_p->arb_icm_ml7);
+	writel(0x80000007, &misc_p->arb_icm_ml8);
+	writel(0x80000007, &misc_p->arb_icm_ml9);
+}
 
 static void sel_1v8(void)
 {
@@ -123,18 +119,10 @@ void plat_ddr_init(void)
 }
 
 /*
- * soc_init:
- */
-void soc_init(void)
-{
-	/* Nothing to be done for SPEAr600 */
-}
-
-/*
  * xxx_boot_selected:
  *
- * return TRUE if the particular booting option is selected
- * return FALSE otherwise
+ * return true if the particular booting option is selected
+ * return false otherwise
  */
 static u32 read_bootstrap(void)
 {
@@ -150,18 +138,18 @@ int snor_boot_selected(void)
 		/* Check whether SNOR boot is selected */
 		if ((bootstrap & CONFIG_SPEAR_ONLYSNORBOOT) ==
 			CONFIG_SPEAR_ONLYSNORBOOT)
-			return TRUE;
+			return true;
 
 		if ((bootstrap & CONFIG_SPEAR_NORNANDBOOT) ==
 			CONFIG_SPEAR_NORNAND8BOOT)
-			return TRUE;
+			return true;
 
 		if ((bootstrap & CONFIG_SPEAR_NORNANDBOOT) ==
 			CONFIG_SPEAR_NORNAND16BOOT)
-			return TRUE;
+			return true;
 	}
 
-	return FALSE;
+	return false;
 }
 
 int nand_boot_selected(void)
@@ -172,20 +160,20 @@ int nand_boot_selected(void)
 		/* Check whether NAND boot is selected */
 		if ((bootstrap & CONFIG_SPEAR_NORNANDBOOT) ==
 			CONFIG_SPEAR_NORNAND8BOOT)
-			return TRUE;
+			return true;
 
 		if ((bootstrap & CONFIG_SPEAR_NORNANDBOOT) ==
 			CONFIG_SPEAR_NORNAND16BOOT)
-			return TRUE;
+			return true;
 	}
 
-	return FALSE;
+	return false;
 }
 
 int pnor_boot_selected(void)
 {
 	/* Parallel NOR boot is not selected in any SPEAr600 revision */
-	return FALSE;
+	return false;
 }
 
 int usb_boot_selected(void)
@@ -195,39 +183,39 @@ int usb_boot_selected(void)
 	if (USB_BOOT_SUPPORTED) {
 		/* Check whether USB boot is selected */
 		if (!(bootstrap & CONFIG_SPEAR_USBBOOT))
-			return TRUE;
+			return true;
 	}
 
-	return FALSE;
+	return false;
 }
 
 int tftp_boot_selected(void)
 {
 	/* TFTP boot is not selected in any SPEAr600 revision */
-	return FALSE;
+	return false;
 }
 
 int uart_boot_selected(void)
 {
 	/* UART boot is not selected in any SPEAr600 revision */
-	return FALSE;
+	return false;
 }
 
 int spi_boot_selected(void)
 {
 	/* SPI boot is not selected in any SPEAr600 revision */
-	return FALSE;
+	return false;
 }
 
 int i2c_boot_selected(void)
 {
 	/* I2C boot is not selected in any SPEAr600 revision */
-	return FALSE;
+	return false;
 }
 
 int mmc_boot_selected(void)
 {
-	return FALSE;
+	return false;
 }
 
 void plat_late_init(void)

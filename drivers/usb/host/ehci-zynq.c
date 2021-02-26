@@ -1,116 +1,92 @@
 /*
- * USB host controller support for the Zynq-7000 PSS EHCI controller
+ * (C) Copyright 2014, Xilinx, Inc
  *
- * Author: Jeff Westfahl <jeff.westfahl@ni.com>
- * Copyright (c) 2012 National Instruments Corporation.
+ * USB Low level initialization(Specific to zynq)
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- * MA 02110-1301 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
+#include <dm.h>
+#include <usb.h>
+#include <asm/arch/hardware.h>
+#include <asm/arch/sys_proto.h>
+#include <asm/io.h>
+#include <usb/ehci-ci.h>
 #include <usb/ulpi.h>
 
 #include "ehci.h"
-#include "ehci-core.h"
 
-/*
- * Create the appropriate control structures to manage
- * a new EHCI host controller.
- */
-int ehci_hcd_init(void)
+struct zynq_ehci_priv {
+	struct ehci_ctrl ehcictrl;
+	struct usb_ehci *ehci;
+};
+
+static int ehci_zynq_ofdata_to_platdata(struct udevice *dev)
 {
-	struct ulpi_viewport usb_phy;
+	struct zynq_ehci_priv *priv = dev_get_priv(dev);
 
-	hccr = (struct ehci_hccr *)(CONFIG_USB_BASE_ADDR + XPSS_USB_CAPLENGTH);
+	priv->ehci = (struct usb_ehci *)dev_get_addr_ptr(dev);
+	if (!priv->ehci)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int ehci_zynq_probe(struct udevice *dev)
+{
+	struct usb_platdata *plat = dev_get_platdata(dev);
+	struct zynq_ehci_priv *priv = dev_get_priv(dev);
+	struct ehci_hccr *hccr;
+	struct ehci_hcor *hcor;
+	struct ulpi_viewport ulpi_vp;
+	/* Used for writing the ULPI data address */
+	struct ulpi_regs *ulpi = (struct ulpi_regs *)0;
+	int ret;
+
+	hccr = (struct ehci_hccr *)((uint32_t)&priv->ehci->caplength);
 	hcor = (struct ehci_hcor *)((uint32_t) hccr +
 			HC_LENGTH(ehci_readl(&hccr->cr_capbase)));
 
-	/* ULPI_VIEWPORT register */
-	usb_phy.viewport_addr = CONFIG_USB_BASE_ADDR + XPSS_USB_ULPI_VIEWPORT;
-	usb_phy.port_num = 0;
+	ulpi_vp.viewport_addr = (u32)&priv->ehci->ulpi_viewpoint;
+	ulpi_vp.port_num = 0;
 
-	/* Turn on USB power. */
-	ulpi_set_vbus(&usb_phy, 1, 0, 0);
+	ret = ulpi_init(&ulpi_vp);
+	if (ret) {
+		puts("zynq ULPI viewport init failed\n");
+		return -1;
+	}
 
-	/* Wait for USB power to ramp up, and give devices time to see it. Some
-	   devices aren't detected without a delay here. */
-	mdelay(500);
+	/* ULPI set flags */
+	ulpi_write(&ulpi_vp, &ulpi->otg_ctrl,
+		   ULPI_OTG_DP_PULLDOWN | ULPI_OTG_DM_PULLDOWN |
+		   ULPI_OTG_EXTVBUSIND);
+	ulpi_write(&ulpi_vp, &ulpi->function_ctrl,
+		   ULPI_FC_FULL_SPEED | ULPI_FC_OPMODE_NORMAL |
+		   ULPI_FC_SUSPENDM);
+	ulpi_write(&ulpi_vp, &ulpi->iface_ctrl, 0);
 
-	return 0;
+	/* Set VBus */
+	ulpi_write(&ulpi_vp, &ulpi->otg_ctrl_set,
+		   ULPI_OTG_DRVVBUS | ULPI_OTG_DRVVBUS_EXT);
+
+	return ehci_register(dev, hccr, hcor, NULL, 0, plat->init_type);
 }
 
-/*
- * Destroy the appropriate control structures corresponding
- * the the EHCI host controller.
- */
-int ehci_hcd_stop(void)
-{
-	struct ulpi_viewport usb_phy;
+static const struct udevice_id ehci_zynq_ids[] = {
+	{ .compatible = "xlnx,zynq-usb-2.20a" },
+	{ }
+};
 
-	/* ULPI_VIEWPORT register */
-	usb_phy.viewport_addr = CONFIG_USB_BASE_ADDR + XPSS_USB_ULPI_VIEWPORT;
-	usb_phy.port_num = 0;
-
-	/* Turn off USB power. */
-	ulpi_set_vbus(&usb_phy, 0, 0, 0);
-
-	/* Wait for USB power to fall off. If USB power is turned on again too
-	   soon, devices may not recognize that power was turned off. */
-	mdelay(500);
-
-	return 0;
-}
-
-void ehci_powerup_fixup(uint32_t *status_reg, uint32_t *reg)
-{
-	/* The Zynq EHCI controller behaves slightly differently than other
-	   embedded high speed host controllers. It automatically clears
-	   EHCI_PS_PR after the reset delay time has elapsed, and sets
-	   EHCI_PS_PE at that time. The EHCI host controller driver writes
-	   the port status register with EHCI_PS_PR clear to end the reset,
-	   but it also has EHCI_PS_PE clear. On Zynq, this disables the port.
-	   The EHCI host controller driver thinks the reset failed, and gives
-	   up after a few retries. We can easily work around this by updating
-	   'reg' to the current value of the port status register before
-	   returning. The MX51 Efika board requires something similar, see
-	   board/efikamx/efikamx-usb.c. */
-
-	/* Root port reset typically takes about 50ms. */
-	#define ZYNQ_EHCI_RESET_WAIT_MSEC 100
-	#define ZYNQ_EHCI_RESET_MSEC_PER 10
-
-	int msec = ZYNQ_EHCI_RESET_WAIT_MSEC;
-
-	do {
-		mdelay(ZYNQ_EHCI_RESET_MSEC_PER);
-		msec -= ZYNQ_EHCI_RESET_MSEC_PER;
-
-		*reg = ehci_readl(status_reg);
-
-		if (!(EHCI_PS_PR & *reg)) {
-			debug("EHCI root port reset complete after ~%dms\n",
-			      ZYNQ_EHCI_RESET_WAIT_MSEC - msec);
-			break;
-		}
-	} while(0 < msec);
-
-	if (EHCI_PS_PR & *reg)
-		printf("EHCI root port reset didn't complete within %dms\n",
-		       ZYNQ_EHCI_RESET_WAIT_MSEC);
-}
+U_BOOT_DRIVER(ehci_zynq) = {
+	.name	= "ehci_zynq",
+	.id	= UCLASS_USB,
+	.of_match = ehci_zynq_ids,
+	.ofdata_to_platdata = ehci_zynq_ofdata_to_platdata,
+	.probe = ehci_zynq_probe,
+	.remove = ehci_deregister,
+	.ops	= &ehci_usb_ops,
+	.platdata_auto_alloc_size = sizeof(struct usb_platdata),
+	.priv_auto_alloc_size = sizeof(struct zynq_ehci_priv),
+	.flags	= DM_FLAG_ALLOC_PRIV_DMA,
+};

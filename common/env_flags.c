@@ -2,23 +2,7 @@
  * (C) Copyright 2012
  * Joe Hershberger, National Instruments, joe.hershberger@ni.com
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <linux/string.h>
@@ -31,6 +15,7 @@
 #include <env_attr.h>
 #include <env_flags.h>
 #define getenv fw_getenv
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #else
 #include <common.h>
 #include <environment.h>
@@ -122,7 +107,12 @@ const char *env_flags_get_varaccess_name(enum env_flags_varaccess access)
  */
 enum env_flags_vartype env_flags_parse_vartype(const char *flags)
 {
-	char *type = strchr(env_flags_vartype_rep,
+	char *type;
+
+	if (strlen(flags) <= ENV_FLAGS_VARTYPE_LOC)
+		return env_flags_vartype_string;
+
+	type = strchr(env_flags_vartype_rep,
 		flags[ENV_FLAGS_VARTYPE_LOC]);
 
 	if (type != NULL)
@@ -139,7 +129,12 @@ enum env_flags_vartype env_flags_parse_vartype(const char *flags)
  */
 enum env_flags_varaccess env_flags_parse_varaccess(const char *flags)
 {
-	char *access = strchr(env_flags_varaccess_rep,
+	char *access;
+
+	if (strlen(flags) <= ENV_FLAGS_VARACCESS_LOC)
+		return env_flags_varaccess_any;
+
+	access = strchr(env_flags_varaccess_rep,
 		flags[ENV_FLAGS_VARACCESS_LOC]);
 
 	if (access != NULL)
@@ -158,12 +153,13 @@ enum env_flags_varaccess env_flags_parse_varaccess_from_binflags(int binflags)
 {
 	int i;
 
-	for (i = 0; i < sizeof(env_flags_varaccess_mask); i++)
+	for (i = 0; i < ARRAY_SIZE(env_flags_varaccess_mask); i++)
 		if (env_flags_varaccess_mask[i] ==
 		    (binflags & ENV_FLAGS_VARACCESS_BIN_MASK))
 			return (enum env_flags_varaccess)i;
 
-	puts("Warning: Non-standard access flags.\n");
+	printf("Warning: Non-standard access flags. (0x%x)\n",
+		binflags & ENV_FLAGS_VARACCESS_BIN_MASK);
 
 	return env_flags_varaccess_any;
 }
@@ -191,6 +187,31 @@ static void skip_num(int hex, const char *value, const char **end,
 	if (end != NULL)
 		*end = value;
 }
+
+#ifdef CONFIG_CMD_NET
+int eth_validate_ethaddr_str(const char *addr)
+{
+	const char *end;
+	const char *cur;
+	int i;
+
+	cur = addr;
+	for (i = 0; i < 6; i++) {
+		skip_num(1, cur, &end, 2);
+		if (cur == end)
+			return -1;
+		if (cur + 2 == end && is_hex_prefix(cur))
+			return -1;
+		if (i != 5 && *end != ':')
+			return -1;
+		if (i == 5 && *end != '\0')
+			return -1;
+		cur = end + 1;
+	}
+
+	return 0;
+}
+#endif
 
 /*
  * Based on the declared type enum, validate that the value string complies
@@ -244,19 +265,8 @@ static int _env_flags_validate_type(const char *value,
 		}
 		break;
 	case env_flags_vartype_macaddr:
-		cur = value;
-		for (i = 0; i < 6; i++) {
-			skip_num(1, cur, &end, 2);
-			if (cur == end)
-				return -1;
-			if (cur + 2 == end && is_hex_prefix(cur))
-				return -1;
-			if (i != 5 && *end != ':')
-				return -1;
-			if (i == 5 && *end != '\0')
-				return -1;
-			cur = end + 1;
-		}
+		if (eth_validate_ethaddr_str(value))
+			return -1;
 		break;
 #endif
 	case env_flags_vartype_end:
@@ -364,21 +374,21 @@ int env_flags_validate_varaccess(const char *name, int check_mask)
 /*
  * Validate the parameters to "env set" directly
  */
-int env_flags_validate_env_set_params(int argc, char * const argv[])
+int env_flags_validate_env_set_params(char *name, char * const val[], int count)
 {
-	if ((argc >= 3) && argv[2] != NULL) {
-		enum env_flags_vartype type = env_flags_get_type(argv[1]);
+	if ((count >= 1) && val[0] != NULL) {
+		enum env_flags_vartype type = env_flags_get_type(name);
 
 		/*
 		 * we don't currently check types that need more than
 		 * one argument
 		 */
-		if (type != env_flags_vartype_string && argc > 3) {
-			printf("## Error: too many parameters for setting "
-				"\"%s\"\n", argv[1]);
+		if (type != env_flags_vartype_string && count > 1) {
+			printf("## Error: too many parameters for setting \"%s\"\n",
+			       name);
 			return -1;
 		}
-		return env_flags_validate_type(argv[1], argv[2]);
+		return env_flags_validate_type(name, val[0]);
 	}
 	/* ok */
 	return 0;
@@ -400,6 +410,9 @@ static int env_parse_flags_to_bin(const char *flags)
 	return binflags;
 }
 
+static int first_call = 1;
+static const char *flags_list;
+
 /*
  * Look for possible flags for a newly added variable
  * This is called specifically when the variable did not exist in the hash
@@ -408,10 +421,13 @@ static int env_parse_flags_to_bin(const char *flags)
 void env_flags_init(ENTRY *var_entry)
 {
 	const char *var_name = var_entry->key;
-	const char *flags_list = getenv(ENV_FLAGS_VAR);
 	char flags[ENV_FLAGS_ATTR_MAX_LEN + 1] = "";
 	int ret = 1;
 
+	if (first_call) {
+		flags_list = getenv(ENV_FLAGS_VAR);
+		first_call = 0;
+	}
 	/* look in the ".flags" and static for a reference to this variable */
 	ret = env_flags_lookup(flags_list, var_name, flags);
 
@@ -434,12 +450,13 @@ static int clear_flags(ENTRY *entry)
 /*
  * Call for each element in the list that defines flags for a variable
  */
-static int set_flags(const char *name, const char *value)
+static int set_flags(const char *name, const char *value, void *priv)
 {
 	ENTRY e, *ep;
 
 	e.key	= name;
 	e.data	= NULL;
+	e.callback = NULL;
 	hsearch_r(e, FIND, &ep, &env_htab, 0);
 
 	/* does the env variable actually exist? */
@@ -462,9 +479,9 @@ static int on_flags(const char *name, const char *value, enum env_op op,
 	hwalk_r(&env_htab, clear_flags);
 
 	/* configure any static flags */
-	env_attr_walk(ENV_FLAGS_LIST_STATIC, set_flags);
+	env_attr_walk(ENV_FLAGS_LIST_STATIC, set_flags, NULL);
 	/* configure any dynamic flags */
-	env_attr_walk(value, set_flags);
+	env_attr_walk(value, set_flags, NULL);
 
 	return 0;
 }
@@ -494,9 +511,9 @@ int env_flags_validate(const ENTRY *item, const char *newval, enum env_op op,
 
 	/* validate the value to match the variable type */
 	if (op != env_op_delete) {
-		enum env_flags_vartype type;
-		type = (enum env_flags_vartype)
+		enum env_flags_vartype type = (enum env_flags_vartype)
 			(ENV_FLAGS_VARTYPE_BIN_MASK & item->flags);
+
 		if (_env_flags_validate_type(newval, type) < 0) {
 			printf("## Error: flags type check failure for "
 				"\"%s\" <= \"%s\" (type: %c)\n",

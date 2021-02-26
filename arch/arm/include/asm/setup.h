@@ -132,7 +132,7 @@ struct tag_ramdisk {
 /* describes where the compressed ramdisk image lives (virtual address) */
 /*
  * this one accidentally used virtual addresses - as such,
- * its depreciated.
+ * it's deprecated.
  */
 #define ATAG_INITRD	0x54410005
 
@@ -267,3 +267,8 @@ struct meminfo {
 extern struct meminfo meminfo;
 
 #endif
+
+/*
+ * Board specified tags
+ */
+void setup_board_tags(struct tag **in_params);

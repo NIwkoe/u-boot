@@ -5,23 +5,7 @@
  * (C) Copyright 2010
  * Sergei Poselenov, Emcraft Systems, sposelenov@emcraft.com.
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __CONFIG_H
@@ -32,8 +16,7 @@
  * (easy to change)
  */
 
-#define CONFIG_MPC5xxx		1	/* This is an MPC5xxx CPU */
-#define CONFIG_MPC5200		1	/* (more precisely a MPC5200 CPU) */
+#define CONFIG_MPC5200		1	/* This is a MPC5200 CPU */
 #define CONFIG_A4M072		1	/* ... on A4M072 board */
 #define CONFIG_MPC5200_DDR	1	/* ... use DDR RAM */
 
@@ -52,7 +35,6 @@
 #define CONFIG_BAUDRATE		9600	/* ... at 9600 bps */
 #define CONFIG_SYS_BAUDRATE_TABLE	{ 9600, 19200, 38400, 57600, 115200, 230400 }
 /* define to enable silent console */
-#define CONFIG_SILENT_CONSOLE
 #define CONFIG_SYS_DEVICE_NULLDEV	1	/* include nulldev device */
 
 /*
@@ -60,10 +42,8 @@
  * 0x40000000 - 0x4fffffff - PCI Memory
  * 0x50000000 - 0x50ffffff - PCI IO Space
  */
-#define CONFIG_PCI
 
 #if defined(CONFIG_PCI)
-#define CONFIG_PCI_PNP		1
 #define CONFIG_PCI_SCAN_SHOW	1
 #define CONFIG_PCIAUTO_SKIP_HOST_BRIDGE	1
 
@@ -80,13 +60,8 @@
 
 #undef CONFIG_EEPRO100
 
-/* Partitions */
-#define CONFIG_MAC_PARTITION
-#define CONFIG_DOS_PARTITION
-
 /* USB */
 #define CONFIG_USB_OHCI_NEW
-#define CONFIG_USB_STORAGE
 #define CONFIG_SYS_OHCI_BE_CONTROLLER
 #undef CONFIG_SYS_USB_OHCI_BOARD_INIT
 #define CONFIG_SYS_USB_OHCI_CPU_INIT	1
@@ -104,22 +79,11 @@
 #define CONFIG_BOOTP_GATEWAY
 #define CONFIG_BOOTP_HOSTNAME
 
-
 /*
  * Command line configuration.
  */
-#include <config_cmd_default.h>
-
 #define CONFIG_CMD_EEPROM
-#define CONFIG_CMD_FAT
-#define CONFIG_CMD_I2C
 #define CONFIG_CMD_IDE
-#define CONFIG_CMD_NFS
-#define CONFIG_CMD_SNTP
-#define CONFIG_CMD_USB
-#define CONFIG_CMD_MII
-#define CONFIG_CMD_DHCP
-#define CONFIG_CMD_PING
 #define CONFIG_CMD_DISPLAY
 
 #if defined(CONFIG_PCI)
@@ -134,13 +98,8 @@
 /*
  * Autobooting
  */
-#define CONFIG_BOOTDELAY	2	/* autoboot after 2 seconds */
 
 #define CONFIG_SYS_AUTOLOAD	"n"
-
-#define CONFIG_AUTOBOOT_KEYED
-#define CONFIG_AUTOBOOT_PROMPT		"autoboot in %d seconds\n", bootdelay
-#define CONFIG_AUTOBOOT_DELAY_STR	"asdfg"
 
 #undef	CONFIG_BOOTARGS
 #define CONFIG_PREBOOT				"run try_update"
@@ -180,7 +139,6 @@
 			"setenv bootargs ${bootargs} no_ethaddr;"	\
 		"fi\0"							\
 	"hostname=CPUP0\0"						\
-	"ethaddr=00:00:00:00:00:00\0"					\
 	"netdev=eth0\0"							\
 	"bootcmd=run bootcmd_nor\0" 					\
 	""
@@ -251,7 +209,6 @@
 #define CONFIG_SYS_INIT_RAM_ADDR	MPC5XXX_SRAM
 #define CONFIG_SYS_INIT_RAM_SIZE		MPC5XXX_SRAM_SIZE	/* Size of used area in DPRAM */
 
-
 #define CONFIG_SYS_GBL_DATA_OFFSET	(CONFIG_SYS_INIT_RAM_SIZE - GENERATED_GBL_DATA_SIZE)
 #define CONFIG_SYS_INIT_SP_OFFSET	CONFIG_SYS_GBL_DATA_OFFSET
 
@@ -284,10 +241,8 @@
 /*
  * Miscellaneous configurable options
  */
-#define CONFIG_SYS_HUSH_PARSER
 #define CONFIG_CMDLINE_EDITING	1
 #define CONFIG_SYS_LONGHELP			/* undef to save memory	    */
-#define CONFIG_SYS_PROMPT		"=> "	/* Monitor Command Prompt   */
 #if defined(CONFIG_CMD_KGDB)
 #define CONFIG_SYS_CBSIZE		1024	/* Console I/O Buffer Size  */
 #else
@@ -302,13 +257,10 @@
 
 #define CONFIG_SYS_LOAD_ADDR		0x100000	/* default load address */
 
-#define CONFIG_SYS_HZ			1000	/* decrementer freq: 1 ms ticks */
-
 #define CONFIG_SYS_CACHELINE_SIZE	32	/* For MPC5xxx CPUs */
 #if defined(CONFIG_CMD_KGDB)
 #  define CONFIG_SYS_CACHELINE_SHIFT	5	/* log base 2 of the above value */
 #endif
-
 
 /*
  * Various low-level settings
@@ -381,9 +333,6 @@
  * Open firmware flat tree support
  *-----------------------------------------------------------------------
  */
-#define CONFIG_OF_LIBFDT	1
-#define CONFIG_OF_BOARD_SETUP	1
-
 #define OF_CPU			"PowerPC,5200@0"
 #define OF_SOC			"soc5200@f0000000"
 #define OF_TBCLK		(bd->bi_busfreq / 4)

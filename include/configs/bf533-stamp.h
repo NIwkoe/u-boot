@@ -1,5 +1,5 @@
 /*
- * U-boot - Configuration file for BF533 STAMP board
+ * U-Boot - Configuration file for BF533 STAMP board
  */
 
 #ifndef __CONFIG_BF533_STAMP_H__
@@ -7,13 +7,11 @@
 
 #include <asm/config-pre.h>
 
-
 /*
  * Processor Settings
  */
 #define CONFIG_BFIN_CPU             bf533-0.3
 #define CONFIG_BFIN_BOOT_MODE       BFIN_BOOT_BYPASS
-
 
 /*
  * Clock Settings
@@ -38,7 +36,6 @@
 /* Values can range from 1-15						*/
 #define CONFIG_SCLK_DIV			6 /* note: 1.2 boards can go faster */
 
-
 /*
  * Memory Settings
  */
@@ -55,7 +52,6 @@
 #define CONFIG_SYS_MONITOR_LEN	(256 * 1024)
 #define CONFIG_SYS_MALLOC_LEN	(384 * 1024)
 
-
 /*
  * Network Settings
  */
@@ -70,9 +66,17 @@
 		SSYNC(); \
 	} while (0)
 #define CONFIG_HOSTNAME		bf533-stamp
-/* Uncomment next line to use fixed MAC address */
-/* #define CONFIG_ETHADDR	02:80:ad:20:31:b8 */
 
+/* I2C */
+#define CONFIG_SYS_I2C
+#define CONFIG_SYS_I2C_SOFT		/* I2C bit-banged */
+#define CONFIG_SYS_I2C_SOFT_SPEED	50000
+#define CONFIG_SYS_I2C_SOFT_SLAVE	0
+/*
+ * Software (bit-bang) I2C driver configuration
+ */
+#define CONFIG_SOFT_I2C_GPIO_SCL	GPIO_PF3
+#define CONFIG_SOFT_I2C_GPIO_SDA	GPIO_PF2
 
 /*
  * Flash Settings
@@ -84,16 +88,15 @@
 #define CONFIG_SYS_MAX_FLASH_BANKS	1
 #define CONFIG_SYS_MAX_FLASH_SECT	67
 
-
 /*
  * SPI Settings
  */
 #define CONFIG_BFIN_SPI
 #define CONFIG_ENV_SPI_MAX_HZ	30000000
+/*
 #define CONFIG_SF_DEFAULT_SPEED	30000000
-#define CONFIG_SPI_FLASH
 #define CONFIG_SPI_FLASH_ALL
-
+*/
 
 /*
  * Env Storage Settings
@@ -122,20 +125,24 @@
  * it linked after the configuration sector.
  */
 # define LDS_BOARD_TEXT \
-	arch/blackfin/lib/libblackfin.o (.text*); \
-	arch/blackfin/cpu/libblackfin.o (.text*); \
+	arch/blackfin/lib/built-in.o (.text*); \
+	arch/blackfin/cpu/built-in.o (.text*); \
 	. = DEFINED(env_offset) ? env_offset : .; \
 	common/env_embedded.o (.text*);
 #endif
 
-
 /*
  * I2C Settings
  */
-#define CONFIG_SOFT_I2C
+#define CONFIG_SYS_I2C_SOFT
+#ifdef CONFIG_SYS_I2C_SOFT
+#define CONFIG_SYS_I2C
 #define CONFIG_SOFT_I2C_GPIO_SCL GPIO_PF3
 #define CONFIG_SOFT_I2C_GPIO_SDA GPIO_PF2
-
+#define I2C_DELAY		udelay(5)	/* 1/4 I2C clock duration */
+#define CONFIG_SYS_I2C_SOFT_SPEED	50000
+#define CONFIG_SYS_I2C_SOFT_SLAVE	0
+#endif
 
 /*
  * Compact Flash / IDE / ATA Settings
@@ -145,7 +152,6 @@
 /* #define CONFIG_STAMP_CF */
 #if defined(CONFIG_STAMP_CF)
 #define CONFIG_MISC_INIT_R
-#define CONFIG_DOS_PARTITION	1
 #undef  CONFIG_IDE_8xx_DIRECT		/* no pcmcia interface required */
 #undef  CONFIG_IDE_LED			/* no led for ide supported */
 #undef  CONFIG_IDE_RESET		/* no reset for ide supported */
@@ -166,7 +172,6 @@
 #define CONFIG_EBIU_AMBCTL1_VAL	0x99B3ffc2
 #endif
 
-
 /*
  * Misc Settings
  */
@@ -180,26 +185,8 @@
 /* #define CONFIG_SHOW_BOOT_PROGRESS */
 
 /* define to enable run status via led */
-/* #define CONFIG_STATUS_LED */
-#ifdef CONFIG_STATUS_LED
-#define CONFIG_GPIO_LED
-#define CONFIG_BOARD_SPECIFIC_LED
-/* use LED0 to indicate booting/alive */
-#define STATUS_LED_BOOT 0
-#define STATUS_LED_BIT GPIO_PF2
-#define STATUS_LED_STATE STATUS_LED_ON
-#define STATUS_LED_PERIOD (CONFIG_SYS_HZ / 4)
-/* use LED1 to indicate crash */
-#define STATUS_LED_CRASH 1
-#define STATUS_LED_BIT1 GPIO_PF3
-#define STATUS_LED_STATE1 STATUS_LED_ON
-#define STATUS_LED_PERIOD1 (CONFIG_SYS_HZ / 2)
-/* #define STATUS_LED_BIT2 GPIO_PF4 */
-#endif
 
 /* define to enable splash screen support */
-/* #define CONFIG_VIDEO */
-
 
 /*
  * Pull in common ADI header for remaining command/environment setup

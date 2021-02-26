@@ -3,16 +3,16 @@
  */
 
 #include <common.h>
-#include <asm/arch/nand.h>
-#include <asm/arch/sdhci.h>
+#include <nand.h>
+#include <sdhci.h>
 #include <asm/io.h>
 #include <environment.h>
 #include <i2c.h>
-#include <jffs2/load_kernel.h>
 #include <miiphy.h>
 #include <netdev.h>
-#include <serial.h>
 #include <zynqpl.h>
+#include <asm/arch/clk.h>
+#include <jffs2/load_kernel.h>
 
 #define BOOT_MODE_REG     (XPSS_SYS_CTRL_BASEADDR + 0x25C)
 #define BOOT_MODES_MASK    0x0000000F
@@ -24,35 +24,13 @@
 
 DECLARE_GLOBAL_DATA_PTR;
 
-/* Common IO for xgmac and xnand */
-/* Data Memory Barrier */
-#define SYNCHRONIZE_IO dmb()
-
-void XIo_Out32(u32 OutAddress, u32 Value)
-{
-	*(volatile u32 *) OutAddress = Value;
-	SYNCHRONIZE_IO;
-}
-
-u32 XIo_In32(u32 InAddress)
-{
-	volatile u32 temp = *(volatile u32 *)InAddress;
-	SYNCHRONIZE_IO;
-	return temp;
-}
-
 #ifdef CONFIG_FPGA
 #if defined(CONFIG_ROBORIO)
-Xilinx_desc fpga = XILINX_XC7Z020_DESC(0);
+xilinx_desc fpga = XILINX_XC7Z020_DESC(0);
 #else
-Xilinx_desc fpga = XILINX_XC7Z010_DESC(0);
+xilinx_desc fpga = XILINX_XC7Z010_DESC(0);
 #endif
 #endif
-
-struct serial_device *default_serial_console(void)
-{
-	return &null_serial_device;
-}
 
 int board_init(void)
 {
@@ -64,15 +42,13 @@ int board_init(void)
 	return 0;
 }
 
+#ifdef CONFIG_BOARD_LATE_INIT
 int board_late_init (void)
 {
 	u8 tmp;
-	int ethaddr_missing;
-#ifdef CONFIG_MFG
-	uchar enetaddr[6];
-#else
+#ifndef CONFIG_MFG
 	int serial_missing;
-
+	int ethaddr_missing;
 	/* These must be initialized to zero so that we default to this address
 	 * as not missing. This allows us to selectively populate the address
 	 * from a backup location for some targets (e.g. non-myRIO) and not for
@@ -80,6 +56,7 @@ int board_late_init (void)
 	int usbgadgetethaddr_missing = 0;
 	int eth1addr_missing = 0;
 #endif
+
 	/*
 	 * Take usb phy out of reset
 	 */
@@ -88,11 +65,6 @@ int board_late_init (void)
 
 #if defined(CONFIG_MFG)
 	set_default_env("Default env required for manufacturing.\n");
-	ethaddr_missing = getenv("ethaddr") == NULL;
-	if (ethaddr_missing){
-		eth_random_enetaddr(enetaddr);
-		eth_setenv_enetaddr("ethaddr",enetaddr);
-	}
 #else
 	serial_missing = getenv("serial#") == NULL;
 	ethaddr_missing = getenv("ethaddr") == NULL;
@@ -108,12 +80,12 @@ int board_late_init (void)
 #endif
 	if (serial_missing || ethaddr_missing || eth1addr_missing ||
 	    usbgadgetethaddr_missing) {
-		u8 nand_buffer[nand_info[0].writesize];
+		u8 nand_buffer[nand_info[0]->writesize];
 		int nand_read_status;
 		char string[18];
-		size_t len = nand_info[0].writesize;
+		size_t len = nand_info[0]->writesize;
 
-		nand_read_status = nand_read(nand_info,
+		nand_read_status = nand_read(nand_info[0],
 		    getenv_ulong("backuppage", 16, CONFIG_BACKUP_PAGE), &len,
 		    nand_buffer);
 		if (serial_missing && !nand_read_status) {
@@ -157,53 +129,25 @@ int board_late_init (void)
 
 	return 0;
 }
-
-#ifdef CONFIG_CMD_NET
-int board_eth_init(bd_t *bis)
-{
-#ifdef CONFIG_ZYNQ_GEM
-	return zynq_gem_initialize(bis);
-#else
-	return 0;
-#endif
-}
-#endif
+#endif /* !CONFIG_BOARD_LATE_INIT */
 
 #ifdef CONFIG_CMD_MMC
 int board_mmc_init(bd_t *bd)
 {
-	return zynq_sdhci_init(XPSS_SDIO0_BASEADDR, 100000000, 0, SDHCI_QUIRK_NO_CD);
+	return zynq_sdhci_init(XPSS_SDIO0_BASEADDR, 125000000, 0, SDHCI_QUIRK_NO_CD);
 }
 #endif
 
 #ifdef CONFIG_CMD_NAND
-
-#ifndef CONFIG_SYS_NAND_SELF_INIT
-#error CONFIG_SYS_NAND_SELF_INIT is required!
-#endif
-
-#if CONFIG_SYS_MAX_NAND_DEVICE > 1
-#error Only 1 NAND device is supported!
-#endif
-
-static struct nand_chip nand_chip;
-
-void board_nand_init()
+static struct nand_chip nand_chip[CONFIG_SYS_MAX_NAND_DEVICE];
+void board_nand_init(void)
 {
-	struct mtd_info *mtd = &nand_info[0];
+	struct nand_chip *nand = &nand_chip[0];
 	loff_t off;
 	loff_t size;
-#if !defined(CONFIG_MFG)
-	struct mtd_device *dev;
-	u8 part_num;
-	struct part_info *part;
-#endif
-	mtd->priv = &nand_chip;
-	nand_chip.IO_ADDR_R = (void  __iomem *)CONFIG_SYS_NAND_BASE;
-	nand_chip.IO_ADDR_W = (void  __iomem *)CONFIG_SYS_NAND_BASE;
 
-	zynq_nand_init(&nand_chip);
-	nand_register(0);
+	if (zynq_nand_init(nand, 0))
+		debug("ZYNQ NAND init failed\n");
 
 	/*
 	 * Unlock the entire flash for manufacturing
@@ -211,16 +155,25 @@ void board_nand_init()
 #if defined(CONFIG_MFG)
 	off = 0;
 #else
-	if (mtdparts_init() || find_dev_and_part("u-boot", &dev, &part_num, &part))
+	struct mtd_device *dev;
+	u8 part_num;
+	struct part_info *part;
+
+	if (mtdparts_init() ||
+		find_dev_and_part("u-boot", &dev, &part_num, &part))
 		off = CONFIG_MTD_UBOOT_OFFSET + CONFIG_BOARD_SIZE_LIMIT;
 	else
 		off = part->size + part->offset;
 #endif
-	size = nand_info[0].size - off;
 
-	nand_unlock(&nand_info[0], off, size, 0);
+	/*
+	 * This is crappy (using 0 as the device), but this is what the Zynq
+	 * NAND driver does, so we do it too to make sure we get the same device
+	 */
+	size = nand_info[0]->size - off;
+	nand_unlock(nand_info[0], off, size, 0);
 }
-#endif
+#endif /* CONFIG_CMD_NAND */
 
 int dram_init(void)
 {
@@ -232,7 +185,7 @@ int dram_init(void)
 /*
  * OK, and resets too.
  */
-void reset_cpu(ulong addr)
+void reset_misc(void)
 {
 	u8 tmp;
 
@@ -244,7 +197,7 @@ void reset_cpu(ulong addr)
 }
 
 #if defined(CONFIG_OF_BOARD_SETUP)
-void ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, bd_t *bd)
 {
 	const char *product_id_str;
 	u16 product_id_val;
@@ -256,5 +209,6 @@ void ft_board_setup(void *blob, bd_t *bd)
 		fdt_find_and_setprop(blob, "/", "DeviceCode",
 			&product_id_val, sizeof(product_id_val), 1);
 	}
+	return 0;
 }
 #endif

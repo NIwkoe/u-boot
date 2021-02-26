@@ -9,45 +9,27 @@
  * Command Settings
  */
 #ifndef _CONFIG_CMD_DEFAULT_H
-# include <config_cmd_default.h>
-# if ADI_CMDS_NETWORK
-#  define CONFIG_CMD_DHCP
+# ifdef ADI_CMDS_NETWORK
 #  define CONFIG_BOOTP_SUBNETMASK
 #  define CONFIG_BOOTP_GATEWAY
 #  define CONFIG_BOOTP_DNS
 #  define CONFIG_BOOTP_NTPSERVER
 #  define CONFIG_BOOTP_RANDOM_DELAY
 #  define CONFIG_KEEP_SERVERADDR
-#  define CONFIG_CMD_DNS
-#  define CONFIG_CMD_PING
 #  ifdef CONFIG_BFIN_MAC
-#   define CONFIG_CMD_MII
 #  endif
-# else
-#  undef CONFIG_CMD_BOOTD
-#  undef CONFIG_CMD_NET
-#  undef CONFIG_CMD_NFS
 # endif
 # ifdef CONFIG_LIBATA
-#  define CONFIG_CMD_FAT
 #  define CONFIG_CMD_SATA
-#  define CONFIG_DOS_PARTITION
 # endif
 # ifdef CONFIG_MMC
-#  define CONFIG_CMD_EXT2
-#  define CONFIG_CMD_FAT
-#  define CONFIG_CMD_MMC
-#  define CONFIG_DOS_PARTITION
+#  define CONFIG_SYS_MMC_MAX_BLK_COUNT 127
 # endif
 # ifdef CONFIG_MMC_SPI
 #  define CONFIG_CMD_MMC_SPI
 # endif
 # ifdef CONFIG_USB
-#  define CONFIG_CMD_EXT2
-#  define CONFIG_CMD_FAT
-#  define CONFIG_CMD_USB
 #  define CONFIG_CMD_USB_STORAGE
-#  define CONFIG_DOS_PARTITION
 # endif
 # if defined(CONFIG_NAND_PLAT) || defined(CONFIG_DRIVER_NAND_BFIN)
 #  define CONFIG_CMD_NAND
@@ -58,37 +40,23 @@
 # endif
 # ifdef CONFIG_RTC_BFIN
 #  define CONFIG_CMD_DATE
-#  if ADI_CMDS_NETWORK
-#   define CONFIG_CMD_SNTP
+#  ifdef ADI_CMDS_NETWORK
 #  endif
 # endif
 # ifdef CONFIG_SPI
 #  define CONFIG_CMD_EEPROM
 # endif
-# if defined(CONFIG_BFIN_SPI) || defined(CONFIG_SOFT_SPI)
-#  define CONFIG_CMD_SPI
-# endif
-# ifdef CONFIG_SPI_FLASH
-#  define CONFIG_CMD_SF
-# endif
-# if defined(CONFIG_HARD_I2C) || defined(CONFIG_SOFT_I2C)
-#  define CONFIG_CMD_I2C
+# if defined(CONFIG_SYS_I2C) || defined(CONFIG_SYS_I2C_SOFT)
 #  define CONFIG_SOFT_I2C_READ_REPEATED_START
 # endif
-# ifdef CONFIG_SYS_NO_FLASH
-#  undef CONFIG_CMD_FLASH
-#  undef CONFIG_CMD_IMLS
-# else
+# ifdef CONFIG_MTD_NOR_FLASH
 #  define CONFIG_CMD_JFFS2
 # endif
 # ifdef CONFIG_CMD_JFFS2
 #  define CONFIG_JFFS2_SUMMARY
 # endif
 # define CONFIG_CMD_BOOTLDR
-# define CONFIG_CMD_CACHE
 # define CONFIG_CMD_CPLBINFO
-# define CONFIG_CMD_ELF
-# define CONFIG_CMD_GPIO
 # define CONFIG_CMD_KGDB
 # define CONFIG_CMD_LDRINFO
 # define CONFIG_CMD_REGINFO
@@ -107,13 +75,11 @@
 #define CONFIG_AUTO_COMPLETE	1
 #define CONFIG_LOADS_ECHO	1
 #define CONFIG_JTAG_CONSOLE
-#define CONFIG_SILENT_CONSOLE
 #ifndef CONFIG_BAUDRATE
 # define CONFIG_BAUDRATE	57600
 #endif
-#ifndef CONFIG_DEBUG_EARLY_SERIAL
-# define CONFIG_SERIAL_MULTI
-# define CONFIG_SYS_BFIN_UART
+#ifdef CONFIG_UART_CONSOLE
+# define CONFIG_BFIN_SERIAL
 #endif
 
 /*
@@ -127,13 +93,6 @@
 /*
  * Env Settings
  */
-#ifndef CONFIG_BOOTDELAY
-# if (CONFIG_BFIN_BOOT_MODE == BFIN_BOOT_UART)
-#  define CONFIG_BOOTDELAY	-1
-# else
-#  define CONFIG_BOOTDELAY	5
-# endif
-#endif
 #ifndef CONFIG_BOOTCOMMAND
 # define CONFIG_BOOTCOMMAND	"run ramboot"
 #endif
@@ -194,10 +153,12 @@
 		"nand erase 0 0x40000;" \
 		"nand write $(loadaddr) 0 0x40000"
 # else
-#  define UBOOT_ENV_UPDATE \
+#  ifndef UBOOT_ENV_UPDATE
+#   define UBOOT_ENV_UPDATE \
 		"protect off 0x20000000 +$(filesize);" \
 		"erase 0x20000000 +$(filesize);" \
 		"cp.b $(loadaddr) 0x20000000 $(filesize)"
+#  endif
 # endif
 # ifdef CONFIG_NETCONSOLE
 #  define NETCONSOLE_ENV \
@@ -286,19 +247,12 @@
  * SPI Settings
  */
 #ifdef CONFIG_SPI_FLASH_ALL
-# define CONFIG_SPI_FLASH_ATMEL
-# define CONFIG_SPI_FLASH_EON
-# define CONFIG_SPI_FLASH_MACRONIX
-# define CONFIG_SPI_FLASH_SPANSION
-# define CONFIG_SPI_FLASH_SST
-# define CONFIG_SPI_FLASH_STMICRO
-# define CONFIG_SPI_FLASH_WINBOND
 #endif
 
 /*
  * I2C Settings
  */
-#if defined(CONFIG_HARD_I2C) || defined(CONFIG_SOFT_I2C)
+#if defined(CONFIG_SYS_I2C) || defined(CONFIG_SYS_I2C_SOFT)
 # ifndef CONFIG_SYS_I2C_SPEED
 #  define CONFIG_SYS_I2C_SPEED 50000
 # endif
@@ -316,5 +270,13 @@
 #define CONFIG_BFIN_SPI_GPIO_CS /* Only matters if BFIN_SPI is enabled */
 #define CONFIG_LZMA
 #define CONFIG_MONITOR_IS_IN_RAM
-
+#ifdef CONFIG_HW_WATCHDOG
+# define CONFIG_BFIN_WATCHDOG
+# ifndef CONFIG_WATCHDOG_TIMEOUT_MSECS
+#  define CONFIG_WATCHDOG_TIMEOUT_MSECS 5000
+# endif
+#endif
+#ifndef CONFIG_ADI_GPIO2
+# define CONFIG_ADI_GPIO1
+#endif
 #endif

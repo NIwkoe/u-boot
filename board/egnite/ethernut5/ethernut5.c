@@ -5,23 +5,7 @@
  * (C) Copyright 2010
  * Ole Reinhardt <ole.reinhardt@thermotemp.de>
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -83,10 +67,11 @@
 #include <asm/arch/at91sam9260_matrix.h>
 #include <asm/arch/at91sam9_smc.h>
 #include <asm/arch/at91_common.h>
-#include <asm/arch/at91_pmc.h>
 #include <asm/arch/at91_spi.h>
+#include <asm/arch/clk.h>
 #include <asm/arch/gpio.h>
 #include <asm/io.h>
+#include <asm/gpio.h>
 
 #include "ethernut5_pwrman.h"
 
@@ -157,7 +142,7 @@ static void ethernut5_nand_hw_init(void)
 	/* Ready pin is optional. */
 	at91_set_pio_input(CONFIG_SYS_NAND_READY_PIN, 1);
 #endif
-	at91_set_pio_output(CONFIG_SYS_NAND_ENABLE_PIN, 1);
+	gpio_direction_output(CONFIG_SYS_NAND_ENABLE_PIN, 1);
 }
 #endif
 
@@ -166,12 +151,10 @@ static void ethernut5_nand_hw_init(void)
  */
 int board_init(void)
 {
-	struct at91_pmc *pmc = (struct at91_pmc *)ATMEL_BASE_PMC;
+	at91_periph_clk_enable(ATMEL_ID_PIOA);
+	at91_periph_clk_enable(ATMEL_ID_PIOB);
+	at91_periph_clk_enable(ATMEL_ID_PIOC);
 
-	/* Enable clocks for all PIOs */
-	writel((1 << ATMEL_ID_PIOA) | (1 << ATMEL_ID_PIOB) |
-		(1 << ATMEL_ID_PIOC),
-		&pmc->pcer);
 	/* Set adress of boot parameters. */
 	gd->bd->bi_boot_params = CONFIG_SYS_SDRAM_BASE + 0x100;
 	/* Initialize UARTs and power management. */
@@ -194,10 +177,9 @@ int board_eth_init(bd_t *bis)
 {
 	const char *devname;
 	unsigned short mode;
-	struct at91_pmc *pmc = (struct at91_pmc *)ATMEL_BASE_PMC;
 
-	/* Enable on-chip EMAC clock. */
-	writel(1 << ATMEL_ID_EMAC0, &pmc->pcer);
+	at91_periph_clk_enable(ATMEL_ID_EMAC0);
+
 	/* Need to reset PHY via power management. */
 	ethernut5_phy_reset();
 	/* Set peripheral pins. */
@@ -219,17 +201,15 @@ int board_eth_init(bd_t *bis)
 		miiphy_write(devname, 0, MII_BMCR, BMCR_RESET);
 	}
 	/* Sync environment with network devices, needed for nfsroot. */
-	return eth_init(gd->bd);
+	return eth_init();
 }
 #endif
 
 #ifdef CONFIG_GENERIC_ATMEL_MCI
 int board_mmc_init(bd_t *bd)
 {
-	struct at91_pmc *pmc = (struct at91_pmc *)ATMEL_BASE_PMC;
+	at91_periph_clk_enable(ATMEL_ID_MCI);
 
-	/* Enable MCI clock. */
-	writel(1 << ATMEL_ID_MCI, &pmc->pcer);
 	/* Initialize MCI hardware. */
 	at91_mci_hw_init();
 	/* Register the device. */
@@ -244,6 +224,7 @@ int board_mmc_getcd(struct mmc *mmc)
 
 #ifdef CONFIG_ATMEL_SPI
 /*
+
  * Note, that u-boot uses different code for SPI bus access. While
  * memory routines use automatic chip select control, the serial
  * flash support requires 'manual' GPIO control. Thus, we switch

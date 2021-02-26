@@ -13,9 +13,11 @@
 #include <command.h>
 #include <malloc.h>
 #include <miiphy.h>
+#include <linux/mdio.h>
 #include <linux/mii.h>
 
 #include <asm/blackfin.h>
+#include <asm/clock.h>
 #include <asm/portmux.h>
 #include <asm/mach-common/bits/dma.h>
 #include <asm/mach-common/bits/emac.h>
@@ -71,18 +73,20 @@ static int bfin_miiphy_wait(void)
 	return 0;
 }
 
-static int bfin_miiphy_read(const char *devname, uchar addr, uchar reg, ushort *val)
+static int bfin_miiphy_read(struct mii_dev *bus, int addr, int devad, int reg)
 {
+	ushort val = 0;
 	if (bfin_miiphy_wait())
 		return 1;
 	bfin_write_EMAC_STAADD(SET_PHYAD(addr) | SET_REGAD(reg) | STABUSY);
 	if (bfin_miiphy_wait())
 		return 1;
-	*val = bfin_read_EMAC_STADAT();
-	return 0;
+	val = bfin_read_EMAC_STADAT();
+	return val;
 }
 
-static int bfin_miiphy_write(const char *devname, uchar addr, uchar reg, ushort val)
+static int bfin_miiphy_write(struct mii_dev *bus, int addr, int devad,
+			     int reg, u16 val)
 {
 	if (bfin_miiphy_wait())
 		return 1;
@@ -112,7 +116,19 @@ int bfin_EMAC_initialize(bd_t *bis)
 	eth_register(dev);
 
 #if defined(CONFIG_MII) || defined(CONFIG_CMD_MII)
-	miiphy_register(dev->name, bfin_miiphy_read, bfin_miiphy_write);
+	int retval;
+	struct mii_dev *mdiodev = mdio_alloc();
+	if (!mdiodev)
+		return -ENOMEM;
+	strncpy(mdiodev->name, dev->name, MDIO_NAME_LEN);
+	mdiodev->read = bfin_miiphy_read;
+	mdiodev->write = bfin_miiphy_write;
+
+	retval = mdio_register(mdiodev);
+	if (retval < 0)
+		return retval;
+
+	dev->priv = mdiodev;
 #endif
 
 	return 0;
@@ -122,8 +138,6 @@ static int bfin_EMAC_send(struct eth_device *dev, void *packet, int length)
 {
 	int i;
 	int result = 0;
-	unsigned int *buf;
-	buf = (unsigned int *)packet;
 
 	if (length <= 0) {
 		printf("Ethernet: bad packet size: %d\n", length);
@@ -190,8 +204,8 @@ static int bfin_EMAC_recv(struct eth_device *dev)
 
 		debug("%s: len = %d\n", __func__, length - 4);
 
-		NetRxPackets[rxIdx] = rxbuf[rxIdx]->FrmData->Dest;
-		NetReceive(NetRxPackets[rxIdx], length - 4);
+		net_rx_packets[rxIdx] = rxbuf[rxIdx]->FrmData->Dest;
+		net_process_received_packet(net_rx_packets[rxIdx], length - 4);
 		bfin_write_DMA1_IRQ_STATUS(DMA_DONE | DMA_ERR);
 		rxbuf[rxIdx]->StatusWord = 0x00000000;
 		if ((rxIdx + 1) >= PKTBUFSRX)
@@ -223,8 +237,9 @@ static int bfin_EMAC_recv(struct eth_device *dev)
 static int bfin_miiphy_init(struct eth_device *dev, int *opmode)
 {
 	const unsigned short pins[] = CONFIG_BFIN_MAC_PINS;
-	u16 phydat;
+	int phydat;
 	size_t count;
+	struct mii_dev *mdiodev = dev->priv;
 
 	/* Enable PHY output */
 	bfin_write_VR_CTL(bfin_read_VR_CTL() | CLKBUFOE);
@@ -237,12 +252,15 @@ static int bfin_miiphy_init(struct eth_device *dev, int *opmode)
 	bfin_write_EMAC_SYSCTL(RXDWA | RXCKS | SET_MDCDIV(MDC_FREQ_TO_DIV(CONFIG_PHY_CLOCK_FREQ)));
 
 	/* turn on auto-negotiation and wait for link to come up */
-	bfin_miiphy_write(dev->name, CONFIG_PHY_ADDR, MII_BMCR, BMCR_ANENABLE);
+	bfin_miiphy_write(mdiodev, CONFIG_PHY_ADDR, MDIO_DEVAD_NONE, MII_BMCR,
+			  BMCR_ANENABLE);
 	count = 0;
 	while (1) {
 		++count;
-		if (bfin_miiphy_read(dev->name, CONFIG_PHY_ADDR, MII_BMSR, &phydat))
-			return -1;
+		phydat = bfin_miiphy_read(mdiodev, CONFIG_PHY_ADDR,
+					  MDIO_DEVAD_NONE, MII_BMSR);
+		if (phydat < 0)
+			return phydat;
 		if (phydat & BMSR_LSTATUS)
 			break;
 		if (count > 30000) {
@@ -253,14 +271,18 @@ static int bfin_miiphy_init(struct eth_device *dev, int *opmode)
 	}
 
 	/* see what kind of link we have */
-	if (bfin_miiphy_read(dev->name, CONFIG_PHY_ADDR, MII_LPA, &phydat))
-		return -1;
+	phydat = bfin_miiphy_read(mdiodev, CONFIG_PHY_ADDR, MDIO_DEVAD_NONE,
+				  MII_LPA);
+	if (phydat < 0)
+		return phydat;
 	if (phydat & LPA_DUPLEX)
 		*opmode = FDMODE;
 	else
 		*opmode = 0;
 
 	bfin_write_EMAC_MMC_CTL(RSTC | CROLL);
+	bfin_write_EMAC_VLAN1(EMAC_VLANX_DEF_VAL);
+	bfin_write_EMAC_VLAN2(EMAC_VLANX_DEF_VAL);
 
 	/* Initialize the TX DMA channel registers */
 	bfin_write_DMA2_X_COUNT(0);

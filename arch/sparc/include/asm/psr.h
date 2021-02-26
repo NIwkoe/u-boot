@@ -9,21 +9,7 @@
  * Copyright (C) 1994 David S. Miller (davem@caip.rutgers.edu)
  * Copyright (C) 2007 Daniel Hellstrom (daniel@gaisler.com)
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
- *
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __SPARC_PSR_H__
@@ -56,7 +42,7 @@
 
 #ifndef __ASSEMBLY__
 /* Get the %psr register. */
-extern __inline__ unsigned int get_psr(void)
+static __inline__ unsigned int get_psr(void)
 {
 	unsigned int psr;
 	__asm__ __volatile__("rd	%%psr, %0\n\t"
@@ -67,7 +53,7 @@ extern __inline__ unsigned int get_psr(void)
 	return psr;
 }
 
-extern __inline__ void put_psr(unsigned int new_psr)
+static __inline__ void put_psr(unsigned int new_psr)
 {
 	__asm__ __volatile__("wr	%0, 0x0, %%psr\n\t" "nop\n\t" "nop\n\t" "nop\n\t":	/* no outputs */
 			     :"r"(new_psr)
@@ -81,7 +67,7 @@ extern __inline__ void put_psr(unsigned int new_psr)
 
 extern unsigned int fsr_storage;
 
-extern __inline__ unsigned int get_fsr(void)
+static __inline__ unsigned int get_fsr(void)
 {
 	unsigned int fsr = 0;
 

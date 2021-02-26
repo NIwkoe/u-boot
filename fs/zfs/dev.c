@@ -5,19 +5,7 @@
  *	(C) Copyright 2003 - 2004
  *	Sysgo AG, <www.elinos.com>, Pavel Bartusek <pba@sysgo.com>
  *
- *	This program is free software; you can redistribute it and/or modify
- *	it under the terms of the GNU General Public License as published by
- *	the Free Software Foundation; either version 2 of the License, or
- *	(at your option) any later version.
- *
- *	This program is distributed in the hope that it will be useful,
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *	GNU General Public License for more details.
- *
- *	You should have received a copy of the GNU General Public License
- *	along with this program; if not, write to the Free Software
- *	Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 
@@ -25,12 +13,12 @@
 #include <config.h>
 #include <zfs_common.h>
 
-static block_dev_desc_t *zfs_block_dev_desc;
+static struct blk_desc *zfs_blk_desc;
 static disk_partition_t *part_info;
 
-void zfs_set_blk_dev(block_dev_desc_t *rbdd, disk_partition_t *info)
+void zfs_set_blk_dev(struct blk_desc *rbdd, disk_partition_t *info)
 {
-	zfs_block_dev_desc = rbdd;
+	zfs_blk_desc = rbdd;
 	part_info = info;
 }
 
@@ -60,16 +48,16 @@ int zfs_devread(int sector, int byte_offset, int byte_len, char *buf)
 
 	debug(" <%d, %d, %d>\n", sector, byte_offset, byte_len);
 
-	if (zfs_block_dev_desc == NULL) {
+	if (zfs_blk_desc == NULL) {
 		printf("** Invalid Block Device Descriptor (NULL)\n");
 		return 1;
 	}
 
 	if (byte_offset != 0) {
 		/* read first part which isn't aligned with start of sector */
-		if (zfs_block_dev_desc->block_read(zfs_block_dev_desc->dev,
-			part_info->start + sector, 1,
-			(unsigned long *)sec_buf) != 1) {
+		if (zfs_blk_desc->block_read(zfs_blk_desc,
+					     part_info->start + sector, 1,
+					     (void *)sec_buf) != 1) {
 			printf(" ** zfs_devread() read error **\n");
 			return 1;
 		}
@@ -90,16 +78,16 @@ int zfs_devread(int sector, int byte_offset, int byte_len, char *buf)
 		u8 p[SECTOR_SIZE];
 
 		block_len = SECTOR_SIZE;
-		zfs_block_dev_desc->block_read(zfs_block_dev_desc->dev,
-			part_info->start + sector,
-			1, (unsigned long *)p);
+		zfs_blk_desc->block_read(zfs_blk_desc,
+					 part_info->start + sector,
+					 1, (void *)p);
 		memcpy(buf, p, byte_len);
 		return 0;
 	}
 
-	if (zfs_block_dev_desc->block_read(zfs_block_dev_desc->dev,
-		part_info->start + sector, block_len / SECTOR_SIZE,
-		(unsigned long *) buf) != block_len / SECTOR_SIZE) {
+	if (zfs_blk_desc->block_read(zfs_blk_desc, part_info->start + sector,
+				     block_len / SECTOR_SIZE,
+				     (void *)buf) != block_len / SECTOR_SIZE) {
 		printf(" ** zfs_devread() read error - block\n");
 		return 1;
 	}
@@ -111,10 +99,9 @@ int zfs_devread(int sector, int byte_offset, int byte_len, char *buf)
 
 	if (byte_len != 0) {
 		/* read rest of data which are not in whole sector */
-		if (zfs_block_dev_desc->
-			block_read(zfs_block_dev_desc->dev,
-					   part_info->start + sector, 1,
-					   (unsigned long *) sec_buf) != 1) {
+		if (zfs_blk_desc->block_read(zfs_blk_desc,
+					     part_info->start + sector,
+					     1, (void *)sec_buf) != 1) {
 			printf(" ** zfs_devread() read error - last part\n");
 			return 1;
 		}

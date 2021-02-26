@@ -1,44 +1,85 @@
 /*
- * Copyright 2012 Joe Hershberger <joe.hershberger@ni.com>
+ * (C) Copyright 2013 - 2015 Xilinx, Inc.
  *
- * See file CREDITS for list of people who contributed to this
- * project.
+ * Xilinx Zynq SD Host Controller Interface
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
-#include <asm/arch/sdhci.h>
+#include <dm.h>
+#include <fdtdec.h>
+#include <libfdt.h>
 #include <malloc.h>
+#include <sdhci.h>
 
-static char *NAME = "SDHCI";
-int zynq_sdhci_init(u32 regbase, u32 max_clk, u32 min_clk, u32 quirks)
+#ifndef CONFIG_ZYNQ_SDHCI_MIN_FREQ
+# define CONFIG_ZYNQ_SDHCI_MIN_FREQ	0
+#endif
+
+struct arasan_sdhci_plat {
+	struct mmc_config cfg;
+	struct mmc mmc;
+};
+
+static int arasan_sdhci_probe(struct udevice *dev)
 {
-	struct sdhci_host *host = NULL;
-	host = (struct sdhci_host *)malloc(sizeof(struct sdhci_host));
-	if (!host) {
-		printf("sdh_host malloc fail!\n");
-		return 1;
-	}
+	struct arasan_sdhci_plat *plat = dev_get_platdata(dev);
+	struct mmc_uclass_priv *upriv = dev_get_uclass_priv(dev);
+	struct sdhci_host *host = dev_get_priv(dev);
+	int ret;
 
-	host->name = NAME;
-	host->ioaddr = (void *)regbase;
-	host->quirks = quirks;
-	host->version = sdhci_readw(host, SDHCI_HOST_VERSION);
-	add_sdhci(host, max_clk, min_clk);
+	host->quirks = SDHCI_QUIRK_WAIT_SEND_CMD |
+		       SDHCI_QUIRK_BROKEN_R1B;
+
+#ifdef CONFIG_ZYNQ_HISPD_BROKEN
+	host->quirks |= SDHCI_QUIRK_NO_HISPD_BIT;
+#endif
+
+	host->max_clk = CONFIG_ZYNQ_SDHCI_MAX_FREQ;
+
+	ret = sdhci_setup_cfg(&plat->cfg, host, 0,
+			      CONFIG_ZYNQ_SDHCI_MIN_FREQ);
+	host->mmc = &plat->mmc;
+	if (ret)
+		return ret;
+	host->mmc->priv = host;
+	host->mmc->dev = dev;
+	upriv->mmc = host->mmc;
+
+	return sdhci_probe(dev);
+}
+
+static int arasan_sdhci_ofdata_to_platdata(struct udevice *dev)
+{
+	struct sdhci_host *host = dev_get_priv(dev);
+
+	host->name = dev->name;
+	host->ioaddr = (void *)dev_get_addr(dev);
+
 	return 0;
 }
 
+static int arasan_sdhci_bind(struct udevice *dev)
+{
+	struct arasan_sdhci_plat *plat = dev_get_platdata(dev);
+
+	return sdhci_bind(dev, &plat->mmc, &plat->cfg);
+}
+
+static const struct udevice_id arasan_sdhci_ids[] = {
+	{ .compatible = "arasan,sdhci-8.9a" },
+	{ }
+};
+
+U_BOOT_DRIVER(arasan_sdhci_drv) = {
+	.name		= "arasan_sdhci",
+	.id		= UCLASS_MMC,
+	.of_match	= arasan_sdhci_ids,
+	.ofdata_to_platdata = arasan_sdhci_ofdata_to_platdata,
+	.ops		= &sdhci_ops,
+	.bind		= arasan_sdhci_bind,
+	.probe		= arasan_sdhci_probe,
+	.priv_auto_alloc_size = sizeof(struct sdhci_host),
+	.platdata_auto_alloc_size = sizeof(struct arasan_sdhci_plat),
+};

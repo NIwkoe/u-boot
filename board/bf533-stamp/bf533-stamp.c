@@ -1,28 +1,12 @@
 /*
- * U-boot - main board file
+ * U-Boot - main board file
  *
  * Copyright (c) 2005-2008 Analog Devices Inc.
  *
  * (C) Copyright 2000-2004
  * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston,
- * MA 02110-1301 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -66,8 +50,8 @@ int misc_init_r(void)
 
 #ifdef CONFIG_SHOW_BOOT_PROGRESS
 
-#define STATUS_LED_OFF 0
-#define STATUS_LED_ON  1
+#define CONFIG_LED_STATUS_OFF 0
+#define CONFIG_LED_STATUS_ON  1
 
 static int gpio_setup;
 
@@ -92,24 +76,30 @@ void show_boot_progress(int status)
 {
 	switch (status) {
 	case BOOTSTAGE_ID_CHECK_MAGIC:
-		stamp_led_set(STATUS_LED_OFF, STATUS_LED_OFF, STATUS_LED_ON);
+		stamp_led_set(CONFIG_LED_STATUS_OFF, CONFIG_LED_STATUS_OFF,
+			      CONFIG_LED_STATUS_ON);
 		break;
 	case BOOTSTAGE_ID_CHECK_HEADER:
-		stamp_led_set(STATUS_LED_OFF, STATUS_LED_ON, STATUS_LED_OFF);
+		stamp_led_set(CONFIG_LED_STATUS_OFF, CONFIG_LED_STATUS_ON,
+			      CONFIG_LED_STATUS_OFF);
 		break;
 	case BOOTSTAGE_ID_CHECK_CHECKSUM:
-		stamp_led_set(STATUS_LED_OFF, STATUS_LED_ON, STATUS_LED_ON);
+		stamp_led_set(CONFIG_LED_STATUS_OFF, CONFIG_LED_STATUS_ON,
+			      CONFIG_LED_STATUS_ON);
 		break;
 	case BOOTSTAGE_ID_CHECK_ARCH:
-		stamp_led_set(STATUS_LED_ON, STATUS_LED_OFF, STATUS_LED_OFF);
+		stamp_led_set(CONFIG_LED_STATUS_ON, CONFIG_LED_STATUS_OFF,
+			      CONFIG_LED_STATUS_OFF);
 		break;
 	case BOOTSTAGE_ID_CHECK_IMAGETYPE:
 	case BOOTSTAGE_ID_DECOMP_IMAGE:
-		stamp_led_set(STATUS_LED_ON, STATUS_LED_OFF, STATUS_LED_ON);
+		stamp_led_set(CONFIG_LED_STATUS_ON, CONFIG_LED_STATUS_OFF,
+			      CONFIG_LED_STATUS_ON);
 		break;
 	case BOOTSTAGE_ID_KERNEL_LOADED:
 	case BOOTSTAGE_ID_CHECK_BOOT_OS:
-		stamp_led_set(STATUS_LED_ON, STATUS_LED_ON, STATUS_LED_OFF);
+		stamp_led_set(CONFIG_LED_STATUS_ON, CONFIG_LED_STATUS_ON,
+			      CONFIG_LED_STATUS_OFF);
 		break;
 	case BOOTSTAGE_ID_BOOT_OS_RETURNED:
 	case BOOTSTAGE_ID_RD_MAGIC:
@@ -118,10 +108,12 @@ void show_boot_progress(int status)
 	case BOOTSTAGE_ID_RAMDISK:
 	case BOOTSTAGE_ID_NO_RAMDISK:
 	case BOOTSTAGE_ID_RUN_OS:
-		stamp_led_set(STATUS_LED_OFF, STATUS_LED_OFF, STATUS_LED_OFF);
+		stamp_led_set(CONFIG_LED_STATUS_OFF, CONFIG_LED_STATUS_OFF,
+			      CONFIG_LED_STATUS_OFF);
 		break;
 	default:
-		stamp_led_set(STATUS_LED_ON, STATUS_LED_ON, STATUS_LED_ON);
+		stamp_led_set(CONFIG_LED_STATUS_ON, CONFIG_LED_STATUS_ON,
+			      CONFIG_LED_STATUS_ON);
 		break;
 	}
 }

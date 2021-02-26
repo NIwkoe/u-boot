@@ -5,23 +5,7 @@
  * Copyright (c) 2001 Gerd Mennchen <Gerd.Mennchen@icn.siemens.de>
  * Copyright (c) 2001 Wolfgang Denk, DENX Software Engineering, <wd@denx.de>.
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -203,14 +187,7 @@ void spi_init_f (void)
 	spi->spi_tbc	= 0;
 	spi->spi_txtmp	= 0;
 
-	/* Allocate space for one transmit and one receive buffer
-	 * descriptor in the DP ram
-	 */
-#ifdef CONFIG_SYS_ALLOC_DPRAM
-	dpaddr = dpram_alloc_align (sizeof(cbd_t)*2, 8);
-#else
 	dpaddr = CPM_SPI_BASE;
-#endif
 
 /* 3 */
 	/* Set up the SPI parameters in the parameter ram */
@@ -471,7 +448,7 @@ ssize_t spi_xfer (size_t count)
  *
  * The Serial Peripheral Interface (SPI) is tested in the local loopback mode.
  * The interface is configured accordingly and several packets
- * are transfered. The configurable test parameters are:
+ * are transferred. The configurable test parameters are:
  *   TEST_MIN_LENGTH - minimum size of packet to transfer
  *   TEST_MAX_LENGTH - maximum size of packet to transfer
  *   TEST_NUM - number of tests

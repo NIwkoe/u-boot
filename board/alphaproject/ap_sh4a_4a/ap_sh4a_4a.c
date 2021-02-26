@@ -2,19 +2,7 @@
  * Copyright (C) 2012 Nobuhiro Iwamatsu <nobuhiro.iwamatsu.yj@renesas.com>
  * Copyright (C) 2012 Renesas Solutions Corp.
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -22,8 +10,6 @@
 #include <asm/processor.h>
 #include <netdev.h>
 #include <i2c.h>
-
-DECLARE_GLOBAL_DATA_PTR;
 
 #define MODEMR			(0xFFCC0020)
 #define MODEMR_MASK		(0x6)
@@ -179,17 +165,8 @@ int board_late_init(void)
 	/* Read MAC address */
 	i2c_read(0x50, 0x0, 0, mac, 6);
 
-	if (is_valid_ether_addr(mac))
+	if (is_valid_ethaddr(mac))
 		eth_setenv_enetaddr("ethaddr", mac);
-
-	return 0;
-}
-
-int dram_init(void)
-{
-	gd->bd->bi_memstart = CONFIG_SYS_SDRAM_BASE;
-	gd->bd->bi_memsize = CONFIG_SYS_SDRAM_SIZE;
-	printf("DRAM:  %dMB\n", CONFIG_SYS_SDRAM_SIZE / (1024 * 1024));
 
 	return 0;
 }

@@ -5,46 +5,49 @@
 # (C) Copyright 2002
 # Daniel Engström, Omicron Ceti AB, daniel@omicron.se.
 #
-# See file CREDITS for list of people who contributed to this
-# project.
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License as
-# published by the Free Software Foundation; either version 2 of
-# the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston,
-# MA 02111-1307 USA
+# SPDX-License-Identifier:	GPL-2.0+
 #
 
-include $(TOPDIR)/config.mk
+ifeq ($(CONFIG_$(SPL_)X86_64),y)
+extra-y	= start64.o
+else
+extra-y	= start.o
+endif
+extra-$(CONFIG_$(SPL_)X86_16BIT_INIT) += resetvec.o start16.o
 
-LIB	= $(obj)lib$(CPU).o
+obj-y	+= cpu.o cpu_x86.o
 
-START	= start.o start16.o resetvec.o
-COBJS	= interrupts.o cpu.o
+ifndef CONFIG_$(SPL_)X86_64
+AFLAGS_REMOVE_call32.o := -mregparm=3 \
+	$(if $(CONFIG_EFI_STUB_64BIT),-march=i386 -m32)
+AFLAGS_call32.o := -fpic -fshort-wchar
 
-SRCS	:= $(START:.o=.S) $(SOBJS:.o=.S) $(COBJS:.o=.c)
-OBJS	:= $(addprefix $(obj),$(SOBJS) $(COBJS))
-START	:= $(addprefix $(obj),$(START))
+extra-y += call32.o
+endif
 
-all:	$(obj).depend $(START) $(LIB)
+obj-y += intel_common/
+obj-$(CONFIG_INTEL_BAYTRAIL) += baytrail/
+obj-$(CONFIG_INTEL_BROADWELL) += broadwell/
+obj-$(CONFIG_SYS_COREBOOT) += coreboot/
+obj-$(CONFIG_EFI_APP) += efi/
+obj-$(CONFIG_QEMU) += qemu/
+obj-$(CONFIG_NORTHBRIDGE_INTEL_IVYBRIDGE) += ivybridge/
+obj-$(CONFIG_INTEL_QUARK) += quark/
+obj-$(CONFIG_INTEL_QUEENSBAY) += queensbay/
+obj-y += lapic.o ioapic.o
+obj-y += irq.o
+ifndef CONFIG_$(SPL_)X86_64
+obj-$(CONFIG_SMP) += mp_init.o
+endif
+obj-y += mtrr.o
+obj-$(CONFIG_PCI) += pci.o
+ifndef CONFIG_$(SPL_)X86_64
+obj-$(CONFIG_SMP) += sipi_vector.o
+endif
+obj-y += turbo.o
 
-$(LIB):	$(OBJS)
-	$(call cmd_link_o_target, $(OBJS))
-
-#########################################################################
-
-# defines $(obj).depend target
-include $(SRCTREE)/rules.mk
-
-sinclude $(obj).depend
-
-#########################################################################
+ifeq ($(CONFIG_$(SPL_)X86_64),y)
+obj-y += x86_64/
+else
+obj-y += i386/
+endif

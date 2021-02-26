@@ -13,23 +13,7 @@
  * (C) Copyright 2009
  * Grzegorz Bernacki, Semihalf, gjb@semihalf.com
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -57,7 +41,7 @@ extern int usb_cpu_init(void);
 
 #if defined(CONFIG_DIGSY_REV5)
 /*
- * The M29W128GH needs a specail reset command function,
+ * The M29W128GH needs a special reset command function,
  * details see the doc/README.cfi file
  */
 void flash_cmd_reset(flash_info_t *info)
@@ -92,7 +76,7 @@ static void sdram_start(int hi_addr)
 /*
  * ATTENTION: Although partially referenced initdram does NOT make real use
  *            use of CONFIG_SYS_SDRAM_BASE. The code does not work if
- *            CONFIG_SYS_SDRAM_BASE is something else than 0x00000000.
+ *            CONFIG_SYS_SDRAM_BASE is something other than 0x00000000.
  */
 
 phys_size_t initdram(int board_type)
@@ -266,9 +250,6 @@ static inline void exbo_hw_init(void) {}
 
 int board_early_init_r(void)
 {
-#ifdef CONFIG_MPC52XX_SPI
-	struct mpc5xxx_gpt *gpt = (struct mpc5xxx_gpt*)MPC5XXX_GPT;
-#endif
 	/*
 	 * Now, when we are in RAM, enable flash write access for detection
 	 * process.  Note that CS_BOOT cannot be cleared when executing in
@@ -284,12 +265,6 @@ int board_early_init_r(void)
 #if defined(CONFIG_USB_OHCI_NEW) && defined(CONFIG_SYS_USB_OHCI_CPU_INIT)
 	/* Low level USB init, required for proper kernel operation */
 	usb_cpu_init();
-#endif
-#ifdef CONFIG_MPC52XX_SPI
-	/* GPT 6 Output Enable */
-	out_be32(&gpt[6].emsr, 0x00000034);
-	/* GPT 7 Output Enable */
-	out_be32(&gpt[7].emsr, 0x00000034);
 #endif
 
 	return (0);
@@ -394,7 +369,7 @@ void ide_set_reset(int idereset)
 #endif /* CONFIG_IDE_RESET */
 #endif /* CONFIG_CMD_IDE */
 
-#if defined(CONFIG_OF_LIBFDT) && defined(CONFIG_OF_BOARD_SETUP)
+#ifdef CONFIG_OF_BOARD_SETUP
 static void ft_delete_node(void *fdt, const char *compat)
 {
 	int off = -1;
@@ -470,7 +445,7 @@ int update_flash_size (int flash_size)
 }
 #endif /* defined(CONFIG_SYS_UPDATE_FLASH_SIZE) */
 
-void ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, bd_t *bd)
 {
 	int phy_addr = CONFIG_PHY_ADDR;
 	char eth_path[] = "/soc5200@f0000000/mdio@3000/ethernet-phy@0";
@@ -494,5 +469,7 @@ void ft_board_setup(void *blob, bd_t *bd)
 #endif
 	/* fix up the phy address */
 	do_fixup_by_path(blob, eth_path, "reg", &phy_addr, sizeof(int), 0);
+
+	return 0;
 }
-#endif /* defined(CONFIG_OF_LIBFDT) && defined(CONFIG_OF_BOARD_SETUP) */
+#endif /* CONFIG_OF_BOARD_SETUP */

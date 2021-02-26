@@ -7,23 +7,7 @@
  * modified by Chris M. Tumas 6/20/06 Change CAS latency to 2 from 3
  * Also changed the refresh for 100MHz operation
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -31,9 +15,9 @@
 #include <miiphy.h>
 #include <libfdt.h>
 
-#if defined(CONFIG_STATUS_LED)
+#if defined(CONFIG_LED_STATUS)
 #include <status_led.h>
-#endif /* CONFIG_STATUS_LED */
+#endif /* CONFIG_LED_STATUS */
 
 /* Kollmorgen DPR initialization data */
 struct init_elem {
@@ -200,35 +184,56 @@ int checkboard(void)
 }
 
 
-#if defined(CONFIG_OF_LIBFDT) && defined(CONFIG_OF_BOARD_SETUP)
-void ft_board_setup(void *blob, bd_t *bd)
+#ifdef CONFIG_OF_BOARD_SETUP
+int ft_board_setup(void *blob, bd_t *bd)
 {
 	ft_cpu_setup(blob, bd);
+
+	return 0;
 }
-#endif /* defined(CONFIG_OF_LIBFDT) && defined(CONFIG_OF_BOARD_SETUP) */
+#endif /* CONFIG_OF_BOARD_SETUP */
 
 
-#if defined(CONFIG_STATUS_LED)
-void __led_init(led_id_t regaddr, int state)
+#if defined(CONFIG_LED_STATUS)
+vu_long *regcode_to_regaddr(led_id_t regcode)
 {
-	*((vu_long *) regaddr) |= ENABLE_GPIO_OUT;
+	/* GPT Enable and Mode Select Register address */
+	vu_long *reg_translate[] = {
+					(vu_long *)MPC5XXX_GPT6_ENABLE,
+					(vu_long *)MPC5XXX_GPT7_ENABLE,
+				   };
 
-	if (state == STATUS_LED_ON)
+	if (ARRAY_SIZE(reg_translate) <= regcode)
+		return NULL;
+	return reg_translate[regcode];
+}
+
+void __led_init(led_id_t regcode, int state)
+{
+	vu_long *regaddr = regcode_to_regaddr(regcode);
+
+	*regaddr |= ENABLE_GPIO_OUT;
+
+	if (state == CONFIG_LED_STATUS_ON)
 		*((vu_long *) regaddr) |= LED_ON;
 	else
 		*((vu_long *) regaddr) &= ~LED_ON;
 }
 
-void __led_set(led_id_t regaddr, int state)
+void __led_set(led_id_t regcode, int state)
 {
-	if (state == STATUS_LED_ON)
-		*((vu_long *) regaddr) |= LED_ON;
+	vu_long *regaddr = regcode_to_regaddr(regcode);
+
+	if (state == CONFIG_LED_STATUS_ON)
+		*regaddr |= LED_ON;
 	else
-		*((vu_long *) regaddr) &= ~LED_ON;
+		*regaddr &= ~LED_ON;
 }
 
-void __led_toggle(led_id_t regaddr)
+void __led_toggle(led_id_t regcode)
 {
-	*((vu_long *) regaddr) ^= LED_ON;
+	vu_long *regaddr = regcode_to_regaddr(regcode);
+
+	*regaddr ^= LED_ON;
 }
-#endif /* CONFIG_STATUS_LED */
+#endif /* CONFIG_LED_STATUS */

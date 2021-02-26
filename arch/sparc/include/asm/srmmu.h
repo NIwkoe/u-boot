@@ -4,21 +4,7 @@
  * Copyright (C) 2007 Daniel Hellstrom (daniel@gaisler.com)
  * Copyright (C) 1995 David S. Miller (davem@caip.rutgers.edu)
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
- *
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __SPARC_SRMMU_H__
@@ -162,7 +148,7 @@ extern void *srmmu_nocache_pool;
 #define __nocache_fix(VADDR) __va(__nocache_pa(VADDR))
 
 /* Accessing the MMU control register. */
-extern __inline__ unsigned int srmmu_get_mmureg(void)
+static __inline__ unsigned int srmmu_get_mmureg(void)
 {
 	unsigned int retval;
 	__asm__ __volatile__("lda [%%g0] %1, %0\n\t":
@@ -170,14 +156,14 @@ extern __inline__ unsigned int srmmu_get_mmureg(void)
 	return retval;
 }
 
-extern __inline__ void srmmu_set_mmureg(unsigned long regval)
+static __inline__ void srmmu_set_mmureg(unsigned long regval)
 {
 	__asm__ __volatile__("sta %0, [%%g0] %1\n\t"::"r"(regval),
 			     "i"(ASI_M_MMUREGS):"memory");
 
 }
 
-extern __inline__ void srmmu_set_ctable_ptr(unsigned long paddr)
+static __inline__ void srmmu_set_ctable_ptr(unsigned long paddr)
 {
 	paddr = ((paddr >> 4) & SRMMU_CTX_PMASK);
 	__asm__ __volatile__("sta %0, [%1] %2\n\t"::"r"(paddr),
@@ -185,7 +171,7 @@ extern __inline__ void srmmu_set_ctable_ptr(unsigned long paddr)
 			     "i"(ASI_M_MMUREGS):"memory");
 }
 
-extern __inline__ unsigned long srmmu_get_ctable_ptr(void)
+static __inline__ unsigned long srmmu_get_ctable_ptr(void)
 {
 	unsigned int retval;
 
@@ -195,13 +181,13 @@ extern __inline__ unsigned long srmmu_get_ctable_ptr(void)
 	return (retval & SRMMU_CTX_PMASK) << 4;
 }
 
-extern __inline__ void srmmu_set_context(int context)
+static __inline__ void srmmu_set_context(int context)
 {
 	__asm__ __volatile__("sta %0, [%1] %2\n\t"::"r"(context),
 			     "r"(SRMMU_CTX_REG), "i"(ASI_M_MMUREGS):"memory");
 }
 
-extern __inline__ int srmmu_get_context(void)
+static __inline__ int srmmu_get_context(void)
 {
 	register int retval;
 	__asm__ __volatile__("lda [%1] %2, %0\n\t":
@@ -210,7 +196,7 @@ extern __inline__ int srmmu_get_context(void)
 	return retval;
 }
 
-extern __inline__ unsigned int srmmu_get_fstatus(void)
+static __inline__ unsigned int srmmu_get_fstatus(void)
 {
 	unsigned int retval;
 
@@ -220,7 +206,7 @@ extern __inline__ unsigned int srmmu_get_fstatus(void)
 	return retval;
 }
 
-extern __inline__ unsigned int srmmu_get_faddr(void)
+static __inline__ unsigned int srmmu_get_faddr(void)
 {
 	unsigned int retval;
 
@@ -231,7 +217,7 @@ extern __inline__ unsigned int srmmu_get_faddr(void)
 }
 
 /* This is guaranteed on all SRMMU's. */
-extern __inline__ void srmmu_flush_whole_tlb(void)
+static __inline__ void srmmu_flush_whole_tlb(void)
 {
 	__asm__ __volatile__("sta %%g0, [%0] %1\n\t"::"r"(0x400),	/* Flush entire TLB!! */
 			     "i"(ASI_M_FLUSH_PROBE):"memory");
@@ -239,14 +225,14 @@ extern __inline__ void srmmu_flush_whole_tlb(void)
 }
 
 /* These flush types are not available on all chips... */
-extern __inline__ void srmmu_flush_tlb_ctx(void)
+static __inline__ void srmmu_flush_tlb_ctx(void)
 {
 	__asm__ __volatile__("sta %%g0, [%0] %1\n\t"::"r"(0x300),	/* Flush TLB ctx.. */
 			     "i"(ASI_M_FLUSH_PROBE):"memory");
 
 }
 
-extern __inline__ void srmmu_flush_tlb_region(unsigned long addr)
+static __inline__ void srmmu_flush_tlb_region(unsigned long addr)
 {
 	addr &= SRMMU_PGDIR_MASK;
 	__asm__ __volatile__("sta %%g0, [%0] %1\n\t"::"r"(addr | 0x200),	/* Flush TLB region.. */
@@ -254,7 +240,7 @@ extern __inline__ void srmmu_flush_tlb_region(unsigned long addr)
 
 }
 
-extern __inline__ void srmmu_flush_tlb_segment(unsigned long addr)
+static __inline__ void srmmu_flush_tlb_segment(unsigned long addr)
 {
 	addr &= SRMMU_REAL_PMD_MASK;
 	__asm__ __volatile__("sta %%g0, [%0] %1\n\t"::"r"(addr | 0x100),	/* Flush TLB segment.. */
@@ -262,7 +248,7 @@ extern __inline__ void srmmu_flush_tlb_segment(unsigned long addr)
 
 }
 
-extern __inline__ void srmmu_flush_tlb_page(unsigned long page)
+static __inline__ void srmmu_flush_tlb_page(unsigned long page)
 {
 	page &= PAGE_MASK;
 	__asm__ __volatile__("sta %%g0, [%0] %1\n\t"::"r"(page),	/* Flush TLB page.. */
@@ -270,7 +256,7 @@ extern __inline__ void srmmu_flush_tlb_page(unsigned long page)
 
 }
 
-extern __inline__ unsigned long srmmu_hwprobe(unsigned long vaddr)
+static __inline__ unsigned long srmmu_hwprobe(unsigned long vaddr)
 {
 	unsigned long retval;
 
@@ -282,7 +268,7 @@ extern __inline__ unsigned long srmmu_hwprobe(unsigned long vaddr)
 	return retval;
 }
 
-extern __inline__ int srmmu_get_pte(unsigned long addr)
+static __inline__ int srmmu_get_pte(unsigned long addr)
 {
 	register unsigned long entry;
 

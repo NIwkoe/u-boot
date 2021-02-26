@@ -26,14 +26,14 @@
 
 #define READONLY_MFG_ENV_VARS \
 	"serial#:xo,ethaddr:mc,eth1addr:mc,usbgadgetethaddr:mc," \
-	"wirelessRegionFactory:so,wl12xxnvs:so,"
+	"wirelessRegionFactory:so,wireless_board_id:so,wl12xxnvs:so,"
 
 #define NET_TYPE_ENV_VARS \
 	"ipaddr:i,sipaddr:i,netmask:i,snetmask:i,gatewayip:i,sgatewayip:i," \
 	"ncip:i,mtu:d,"
 
-#ifndef CONFIG_FPGALOADCMD
-#define CONFIG_FPGALOADCMD \
+#ifndef SCRIPT_FPGALOADCMD
+#define SCRIPT_FPGALOADCMD \
 	"ubifsmount ubi:bootfs; " \
 	"if test -n \\\\\"$isnofpgaapp\\\\\" -o $bootmode = safemode -o " \
 		"-n \\\\\"$isforcedrecoverymode\\\\\"; "\
@@ -84,20 +84,20 @@
 #endif
 
 #if defined(CONFIG_NI_USB_VID) && defined(CONFIG_NI_USB_PID)
-#define CONFIG_GADGET_VARS \
+#define NI_GADGET_VARS \
 	"USBVendorID=" CONFIG_NI_USB_VID "\0" \
 	"USBProductID=" CONFIG_NI_USB_PID "\0" \
 	"USBProduct=" CONFIG_PREFIXED_DEVICE_DESC "\0" \
 	"USBDevice=0x" CONFIG_DEVICE_CODE "\0"
 #else
-#define CONFIG_GADGET_VARS
+#define NI_GADGET_VARS
 #endif
 
 #if defined(CONFIG_OTG_USB_BASE_ADDR)
 
-#if CONFIG_OTG_USB_BASE_ADDR == XPSS_USB0_BASEADDR
+#if CONFIG_OTG_USB_BASE_ADDR == ZYNQ_USB_BASEADDR0
 #define CONFIG_OTG_USB_BASEADDR "e0002000"
-#elif CONFIG_OTG_USB_BASE_ADDR == XPSS_USB1_BASEADDR
+#elif CONFIG_OTG_USB_BASE_ADDR == ZYNQ_USB_BASEADDR1
 #define CONFIG_OTG_USB_BASEADDR "e0003000"
 #else
 #error "Unexpected USB base address for USB OTG configuration"
@@ -133,7 +133,7 @@
 	"DeviceDesc=" CONFIG_DEVICE_DESC "\0" \
 	"DeviceCode=0x" CONFIG_DEVICE_CODE "\0" \
 	"FPGADeviceCode=0x" CONFIG_FPGA_DEVICE_CODE "\0" \
-	CONFIG_GADGET_VARS \
+	NI_GADGET_VARS \
 	"mtdids=" MTDIDS_DEFAULT "\0" \
 	"mtdparts=" MTDPARTS_DEFAULT "\0" \
 	"verifyaddr=" VERIFY_ADDR "\0" \
@@ -148,8 +148,7 @@
 		__stringify(CONFIG_BACKUP_USBGADGETETHADDR_OFFSET) "\0" \
 	"backupeth3addroffset=" \
 		__stringify(CONFIG_BACKUP_ETH3ADDR_OFFSET) "\0" \
-	"wirelessRegionFactory=840\0" \
-	"wl12xxnvs=" CONFIG_DEFAULT_NVS "\0" \
+	"wl12xxnvs=" NI_DEFAULT_NVS "\0" \
 	"sdboot=echo Copying Safemode from SD to RAM...; " \
 		"mmcinfo; " \
 		"fatload mmc 0 $loadaddr linux_safemode.itb; " \
@@ -195,6 +194,7 @@
 			"else " \
 				"setenv consoleparam console=$console quiet; " \
 			"fi; " \
+			"conprobe; " \
 			"run sc; " \
 		"else " \
 			"setenv consoleparam console= quiet; " \
@@ -260,7 +260,7 @@
 			"run setlederrorstatus; " \
 			"echo $recovery_err; " \
 		"fi;\0" \
-	"fpgaloadcmd=" CONFIG_FPGALOADCMD "\0" \
+	"fpgaloadcmd=" SCRIPT_FPGALOADCMD "\0" \
 	"ipresetcmd=echo Resetting primary Ethernet configuration; " \
 		"setenv dhcpenabled 1; " \
 		"setenv linklocalenabled 1; " \
@@ -296,6 +296,7 @@
 			"setenv ipaddr $sipaddr; " \
 			"setenv netmask $snetmask; " \
 			"setenv gatewayip $sgatewayip; " \
+			"setenv dnsip $sdnsip; " \
 		"fi;\0" \
 	"markhardbootcomplete=" \
 		"i2c mw 0x40 1 0x20;\0" \
@@ -391,6 +392,7 @@
 	"resetenv=" \
 		"serial_save=${serial#} && " \
 		ENV_SAVE(wirelessRegionFactory) \
+		ENV_SAVE(wireless_board_id) \
 		USBGADGETETHADDR_SAVE \
 		WIFIETHADDR_SAVE \
 		ETHADDR_SAVE \
@@ -398,6 +400,7 @@
 		"env default -a && " \
 		"env set serial# $serial_save && " \
 		ENV_RESTORE(wirelessRegionFactory) \
+		ENV_RESTORE(wireless_board_id) \
 		USBGADGETETHADDR_RESTORE \
 		WIFIETHADDR_RESTORE \
 		ETHADDR_RESTORE \
@@ -453,6 +456,7 @@
 #define REAL_PREBOOT \
 	"setenv silent 1; " \
 	"nand lock tight; " \
+	"i2c dev $i2cbus; " \
 	"ubi part boot-config; " \
 	"run readsoftdip; " \
 	"run readcplddip; " \
@@ -467,6 +471,7 @@
 		"run recoverycmd; " \
 	"else " \
 		"run fpgaloadcmd; " \
+		"run consolemultiplexcmd; " \
 		"run consoleoutcmd; " \
 		"if test -n \\\\\"$isipreset\\\\\"; then " \
 			"run ipresetcmd; " \
@@ -476,6 +481,7 @@
 #define REAL_PREBOOT_FEEBLE_RECOVERY \
 	"setenv silent 1; " \
 	"nand lock tight; " \
+	"i2c dev $i2cbus; " \
 	"ubi part boot-config; " \
 	"run readsoftdip; " \
 	"run readcplddip; " \
@@ -490,6 +496,7 @@
 		"forcedrecovery=1; " \
 		"run recoverycmd; " \
 	"else " \
+		"run consolemultiplexcmd; " \
 		"run consoleoutcmd; " \
 		"if test -n \\\\\"$isipreset\\\\\"; then " \
 			"run ipresetcmd; " \

@@ -1,23 +1,7 @@
 /*
  * Copyright 2010-2011 Freescale Semiconductor, Inc.
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -26,33 +10,27 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
-#ifdef CONFIG_36BIT
-#define CONFIG_PHYS_64BIT
-#endif
-
-#if defined(CONFIG_P1020MBG)
+#if defined(CONFIG_TARGET_P1020MBG)
 #define CONFIG_BOARDNAME "P1020MBG-PC"
-#define CONFIG_P1020
 #define CONFIG_VSC7385_ENET
 #define CONFIG_SLIC
 #define __SW_BOOT_MASK		0x03
 #define __SW_BOOT_NOR		0xe4
 #define __SW_BOOT_SD		0x54
+#define CONFIG_SYS_L2_SIZE	(256 << 10)
 #endif
 
-#if defined(CONFIG_P1020UTM)
+#if defined(CONFIG_TARGET_P1020UTM)
 #define CONFIG_BOARDNAME "P1020UTM-PC"
-#define CONFIG_P1020
 #define __SW_BOOT_MASK		0x03
 #define __SW_BOOT_NOR		0xe0
 #define __SW_BOOT_SD		0x50
+#define CONFIG_SYS_L2_SIZE	(256 << 10)
 #endif
 
-#if defined(CONFIG_P1020RDB)
+#if defined(CONFIG_TARGET_P1020RDB_PC)
 #define CONFIG_BOARDNAME "P1020RDB-PC"
 #define CONFIG_NAND_FSL_ELBC
-#define CONFIG_P1020
-#define CONFIG_SPI_FLASH
 #define CONFIG_VSC7385_ENET
 #define CONFIG_SLIC
 #define __SW_BOOT_MASK		0x03
@@ -61,14 +39,50 @@
 #define __SW_BOOT_SD		0x9c
 #define __SW_BOOT_NAND		0xec
 #define __SW_BOOT_PCIE		0x6c
+#define CONFIG_SYS_L2_SIZE	(256 << 10)
 #endif
 
-#if defined(CONFIG_P1021RDB)
+/*
+ * P1020RDB-PD board has user selectable switches for evaluating different
+ * frequency and boot options for the P1020 device. The table that
+ * follow describe the available options. The front six binary number was in
+ * accordance with SW3[1:6].
+ * 111101 533 533 267 667 NOR Core0 boot; Core1 hold-off
+ * 101101 667 667 333 667 NOR Core0 boot; Core1 hold-off
+ * 011001 800 800 400 667 NOR Core0 boot; Core1 hold-off
+ * 001001 800 800 400 667 SD/MMC Core0 boot; Core1 hold-off
+ * 001101 800 800 400 667 SPI Core0 boot; Core1 hold-off
+ * 010001 800 800 400 667 NAND Core0 boot; Core1 hold-off
+ * 011101 800 800 400 667 PCIe-2 Core0 boot; Core1 hold-off
+ */
+#if defined(CONFIG_TARGET_P1020RDB_PD)
+#define CONFIG_BOARDNAME "P1020RDB-PD"
+#define CONFIG_NAND_FSL_ELBC
+#define CONFIG_VSC7385_ENET
+#define CONFIG_SLIC
+#define __SW_BOOT_MASK		0x03
+#define __SW_BOOT_NOR		0x64
+#define __SW_BOOT_SPI		0x34
+#define __SW_BOOT_SD		0x24
+#define __SW_BOOT_NAND		0x44
+#define __SW_BOOT_PCIE		0x74
+#define CONFIG_SYS_L2_SIZE	(256 << 10)
+/*
+ * Dynamic MTD Partition support with mtdparts
+ */
+#define CONFIG_MTD_DEVICE
+#define CONFIG_MTD_PARTITIONS
+#define CONFIG_CMD_MTDPARTS
+#define CONFIG_FLASH_CFI_MTD
+#define MTDIDS_DEFAULT "nor0=ec000000.nor"
+#define MTDPARTS_DEFAULT "mtdparts=ec000000.nor:128k(dtb),6016k(kernel)," \
+			"57088k(fs),1m(vsc7385-firmware),1280k(u-boot)"
+#endif
+
+#if defined(CONFIG_TARGET_P1021RDB)
 #define CONFIG_BOARDNAME "P1021RDB-PC"
 #define CONFIG_NAND_FSL_ELBC
-#define CONFIG_P1021
 #define CONFIG_QE
-#define CONFIG_SPI_FLASH
 #define CONFIG_VSC7385_ENET
 #define CONFIG_SYS_LBC_LBCR	0x00080000	/* Implement conversion of
 						addresses in the LBC */
@@ -78,28 +92,44 @@
 #define __SW_BOOT_SD		0x9c
 #define __SW_BOOT_NAND		0xec
 #define __SW_BOOT_PCIE		0x6c
+#define CONFIG_SYS_L2_SIZE	(256 << 10)
+/*
+ * Dynamic MTD Partition support with mtdparts
+ */
+#define CONFIG_MTD_DEVICE
+#define CONFIG_MTD_PARTITIONS
+#define CONFIG_CMD_MTDPARTS
+#define CONFIG_FLASH_CFI_MTD
+#ifdef CONFIG_PHYS_64BIT
+#define MTDIDS_DEFAULT "nor0=fef000000.nor"
+#define MTDPARTS_DEFAULT "mtdparts=fef000000.nor:256k(vsc7385-firmware)," \
+			"256k(dtb),4608k(kernel),9728k(fs)," \
+			"256k(qe-ucode-firmware),1280k(u-boot)"
+#else
+#define MTDIDS_DEFAULT "nor0=ef000000.nor"
+#define MTDPARTS_DEFAULT "mtdparts=ef000000.nor:256k(vsc7385-firmware)," \
+			"256k(dtb),4608k(kernel),9728k(fs)," \
+			"256k(qe-ucode-firmware),1280k(u-boot)"
+#endif
 #endif
 
-#if defined(CONFIG_P1024RDB)
+#if defined(CONFIG_TARGET_P1024RDB)
 #define CONFIG_BOARDNAME "P1024RDB"
 #define CONFIG_NAND_FSL_ELBC
-#define CONFIG_P1024
 #define CONFIG_SLIC
-#define CONFIG_SPI_FLASH
 #define __SW_BOOT_MASK		0xf3
 #define __SW_BOOT_NOR		0x00
 #define __SW_BOOT_SPI		0x08
 #define __SW_BOOT_SD		0x04
 #define __SW_BOOT_NAND		0x0c
+#define CONFIG_SYS_L2_SIZE	(256 << 10)
 #endif
 
-#if defined(CONFIG_P1025RDB)
+#if defined(CONFIG_TARGET_P1025RDB)
 #define CONFIG_BOARDNAME "P1025RDB"
 #define CONFIG_NAND_FSL_ELBC
-#define CONFIG_P1025
 #define CONFIG_QE
 #define CONFIG_SLIC
-#define CONFIG_SPI_FLASH
 
 #define CONFIG_SYS_LBC_LBCR	0x00080000	/* Implement conversion of
 						addresses in the LBC */
@@ -108,13 +138,12 @@
 #define __SW_BOOT_SPI		0x08
 #define __SW_BOOT_SD		0x04
 #define __SW_BOOT_NAND		0x0c
+#define CONFIG_SYS_L2_SIZE	(256 << 10)
 #endif
 
-#if defined(CONFIG_P2020RDB)
-#define CONFIG_BOARDNAME "P2020RDB-PCA"
+#if defined(CONFIG_TARGET_P2020RDB)
+#define CONFIG_BOARDNAME "P2020RDB-PC"
 #define CONFIG_NAND_FSL_ELBC
-#define CONFIG_P2020
-#define CONFIG_SPI_FLASH
 #define CONFIG_VSC7385_ENET
 #define __SW_BOOT_MASK		0x03
 #define __SW_BOOT_NOR		0xc8
@@ -122,38 +151,99 @@
 #define __SW_BOOT_SD		0x68 /* or 0x18 */
 #define __SW_BOOT_NAND		0xe8
 #define __SW_BOOT_PCIE		0xa8
+#define CONFIG_SYS_L2_SIZE	(512 << 10)
+/*
+ * Dynamic MTD Partition support with mtdparts
+ */
+#define CONFIG_MTD_DEVICE
+#define CONFIG_MTD_PARTITIONS
+#define CONFIG_CMD_MTDPARTS
+#define CONFIG_FLASH_CFI_MTD
+#ifdef CONFIG_PHYS_64BIT
+#define MTDIDS_DEFAULT "nor0=fef000000.nor"
+#define MTDPARTS_DEFAULT "mtdparts=fef000000.nor:256k(vsc7385-firmware)," \
+			"256k(dtb),4608k(kernel),9984k(fs),1280k(u-boot)"
+#else
+#define MTDIDS_DEFAULT "nor0=ef000000.nor"
+#define MTDPARTS_DEFAULT "mtdparts=ef000000.nor:256k(vsc7385-firmware)," \
+			"256k(dtb),4608k(kernel),9984k(fs),1280k(u-boot)"
+#endif
 #endif
 
 #ifdef CONFIG_SDCARD
-#define CONFIG_RAMBOOT_SDCARD
-#define CONFIG_SYS_RAMBOOT
-#define CONFIG_SYS_EXTRA_ENV_RELOC
-#define CONFIG_SYS_TEXT_BASE		0x11000000
-#define CONFIG_RESET_VECTOR_ADDRESS	0x1107fffc
+#define CONFIG_SPL_MMC_MINIMAL
+#define CONFIG_SPL_FLUSH_IMAGE
+#define CONFIG_SPL_TARGET		"u-boot-with-spl.bin"
+#define CONFIG_SYS_TEXT_BASE		0x11001000
+#define CONFIG_SPL_TEXT_BASE		0xf8f81000
+#define CONFIG_SPL_PAD_TO		0x20000
+#define CONFIG_SPL_MAX_SIZE		(128 * 1024)
+#define CONFIG_SYS_MMC_U_BOOT_SIZE	(768 << 10)
+#define CONFIG_SYS_MMC_U_BOOT_DST	(0x11000000)
+#define CONFIG_SYS_MMC_U_BOOT_START	(0x11000000)
+#define CONFIG_SYS_MMC_U_BOOT_OFFS	(128 << 10)
+#define CONFIG_SYS_MPC85XX_NO_RESETVEC
+#define CONFIG_SYS_LDSCRIPT	"arch/powerpc/cpu/mpc85xx/u-boot.lds"
+#define CONFIG_SPL_MMC_BOOT
+#ifdef CONFIG_SPL_BUILD
+#define CONFIG_SPL_COMMON_INIT_DDR
+#endif
 #endif
 
 #ifdef CONFIG_SPIFLASH
-#define CONFIG_RAMBOOT_SPIFLASH
-#define CONFIG_SYS_RAMBOOT
-#define CONFIG_SYS_EXTRA_ENV_RELOC
-#define CONFIG_SYS_TEXT_BASE		0x11000000
-#define CONFIG_RESET_VECTOR_ADDRESS	0x1107fffc
+#define CONFIG_SPL_SPI_FLASH_MINIMAL
+#define CONFIG_SPL_FLUSH_IMAGE
+#define CONFIG_SPL_TARGET		"u-boot-with-spl.bin"
+#define CONFIG_SYS_TEXT_BASE		0x11001000
+#define CONFIG_SPL_TEXT_BASE		0xf8f81000
+#define CONFIG_SPL_PAD_TO		0x20000
+#define CONFIG_SPL_MAX_SIZE		(128 * 1024)
+#define CONFIG_SYS_SPI_FLASH_U_BOOT_SIZE	(768 << 10)
+#define CONFIG_SYS_SPI_FLASH_U_BOOT_DST		(0x11000000)
+#define CONFIG_SYS_SPI_FLASH_U_BOOT_START	(0x11000000)
+#define CONFIG_SYS_SPI_FLASH_U_BOOT_OFFS	(128 << 10)
+#define CONFIG_SYS_MPC85XX_NO_RESETVEC
+#define CONFIG_SYS_LDSCRIPT	"arch/powerpc/cpu/mpc85xx/u-boot.lds"
+#define CONFIG_SPL_SPI_BOOT
+#ifdef CONFIG_SPL_BUILD
+#define CONFIG_SPL_COMMON_INIT_DDR
+#endif
 #endif
 
-#if defined(CONFIG_NAND) && defined(CONFIG_NAND_FSL_ELBC)
-#define CONFIG_NAND_U_BOOT
-#define CONFIG_SYS_EXTRA_ENV_RELOC
-#define CONFIG_SYS_RAMBOOT
-#define CONFIG_SYS_TEXT_BASE_SPL	0xff800000
-#ifdef CONFIG_NAND_SPL
-#define CONFIG_SYS_MONITOR_BASE		CONFIG_SYS_TEXT_BASE_SPL
-#else
+#ifdef CONFIG_NAND
+#ifdef CONFIG_TPL_BUILD
+#define CONFIG_SPL_NAND_BOOT
+#define CONFIG_SPL_FLUSH_IMAGE
+#define CONFIG_SPL_NAND_INIT
+#define CONFIG_SPL_COMMON_INIT_DDR
+#define CONFIG_SPL_MAX_SIZE		(128 << 10)
+#define CONFIG_SPL_TEXT_BASE		0xf8f81000
+#define CONFIG_SYS_MPC85XX_NO_RESETVEC
+#define CONFIG_SYS_NAND_U_BOOT_SIZE	(832 << 10)
+#define CONFIG_SYS_NAND_U_BOOT_DST	(0x11000000)
+#define CONFIG_SYS_NAND_U_BOOT_START	(0x11000000)
+#define CONFIG_SYS_NAND_U_BOOT_OFFS	((128 + 128) << 10)
+#elif defined(CONFIG_SPL_BUILD)
+#define CONFIG_SPL_INIT_MINIMAL
+#define CONFIG_SPL_FLUSH_IMAGE
+#define CONFIG_SPL_TARGET		"u-boot-with-spl.bin"
+#define CONFIG_SPL_TEXT_BASE		0xff800000
+#define CONFIG_SPL_MAX_SIZE		4096
+#define CONFIG_SYS_NAND_U_BOOT_SIZE	(128 << 10)
+#define CONFIG_SYS_NAND_U_BOOT_DST	0xf8f80000
+#define CONFIG_SYS_NAND_U_BOOT_START	0xf8f80000
+#define CONFIG_SYS_NAND_U_BOOT_OFFS	(128 << 10)
+#endif /* not CONFIG_TPL_BUILD */
+
+#define CONFIG_SPL_PAD_TO		0x20000
+#define CONFIG_TPL_PAD_TO		0x20000
+#define CONFIG_SPL_TARGET		"u-boot-with-spl.bin"
 #define CONFIG_SYS_TEXT_BASE		0x11001000
-#endif /* CONFIG_NAND_SPL */
+#define CONFIG_SYS_LDSCRIPT	"arch/powerpc/cpu/mpc85xx/u-boot-nand.lds"
 #endif
 
 #ifndef CONFIG_SYS_TEXT_BASE
-#define CONFIG_SYS_TEXT_BASE		0xeff80000
+#define CONFIG_SYS_TEXT_BASE		0xeff40000
 #endif
 
 #ifndef CONFIG_RESET_VECTOR_ADDRESS
@@ -161,25 +251,22 @@
 #endif
 
 #ifndef CONFIG_SYS_MONITOR_BASE
+#ifdef CONFIG_SPL_BUILD
+#define CONFIG_SYS_MONITOR_BASE	CONFIG_SPL_TEXT_BASE
+#else
 #define CONFIG_SYS_MONITOR_BASE	CONFIG_SYS_TEXT_BASE	/* start of monitor */
 #endif
-
-/* High Level Configuration Options */
-#define CONFIG_BOOKE
-#define CONFIG_E500
-#define CONFIG_MPC85xx
+#endif
 
 #define CONFIG_MP
 
-#define CONFIG_FSL_ELBC
-#define CONFIG_PCI
-#define CONFIG_PCIE1	/* PCIE controler 1 (slot 1) */
-#define CONFIG_PCIE2	/* PCIE controler 2 (slot 2) */
+#define CONFIG_PCIE1	/* PCIE controller 1 (slot 1) */
+#define CONFIG_PCIE2	/* PCIE controller 2 (slot 2) */
 #define CONFIG_FSL_PCI_INIT	/* Use common FSL init code */
+#define CONFIG_PCI_INDIRECT_BRIDGE	/* indirect PCI bridge support */
 #define CONFIG_FSL_PCIE_RESET	/* need PCIe reset errata */
 #define CONFIG_SYS_PCI_64BIT	/* enable 64-bit PCI resources */
 
-#define CONFIG_FSL_LAW
 #define CONFIG_TSEC_ENET	/* tsec ethernet support */
 #define CONFIG_ENV_OVERWRITE
 
@@ -189,7 +276,7 @@
 #define CONFIG_LIBATA
 #define CONFIG_LBA48
 
-#if defined(CONFIG_P2020RDB)
+#if defined(CONFIG_TARGET_P2020RDB)
 #define CONFIG_SYS_CLK_FREQ	100000000
 #else
 #define CONFIG_SYS_CLK_FREQ	66666666
@@ -202,8 +289,6 @@
  */
 #define CONFIG_L2_CACHE
 #define CONFIG_BTB
-
-#define CONFIG_BOARD_EARLY_INIT_F	/* Call board_pre_init */
 
 #define CONFIG_ENABLE_36BIT_PHYS
 
@@ -221,19 +306,18 @@
 
 /* IN case of NAND bootloader relocate CCSRBAR in RAMboot code not in the 4k
        SPL code*/
-#if defined(CONFIG_NAND_SPL)
+#ifdef CONFIG_SPL_BUILD
 #define CONFIG_SYS_CCSR_DO_NOT_RELOCATE
 #endif
 
 /* DDR Setup */
-#define CONFIG_FSL_DDR3
 #define CONFIG_SYS_DDR_RAW_TIMING
 #define CONFIG_DDR_SPD
 #define CONFIG_SYS_SPD_BUS_NUM 1
 #define SPD_EEPROM_ADDRESS 0x52
 #undef CONFIG_FSL_DDR_INTERACTIVE
 
-#ifdef CONFIG_P1020MBG
+#if (defined(CONFIG_TARGET_P1020MBG) || defined(CONFIG_TARGET_P1020RDB_PD))
 #define CONFIG_SYS_SDRAM_SIZE_LAW	LAW_SIZE_2G
 #define CONFIG_CHIP_SELECTS_PER_CTRL	2
 #else
@@ -244,43 +328,10 @@
 #define CONFIG_SYS_DDR_SDRAM_BASE	0x00000000
 #define CONFIG_SYS_SDRAM_BASE		CONFIG_SYS_DDR_SDRAM_BASE
 
-#define CONFIG_NUM_DDR_CONTROLLERS	1
 #define CONFIG_DIMM_SLOTS_PER_CTLR	1
 
 /* Default settings for DDR3 */
-#ifdef CONFIG_P2020RDB
-#define CONFIG_SYS_DDR_CS0_BNDS		0x0000003f
-#define CONFIG_SYS_DDR_CS0_CONFIG	0x80014202
-#define CONFIG_SYS_DDR_CS0_CONFIG_2	0x00000000
-#define CONFIG_SYS_DDR_CS1_BNDS		0x00000000
-#define CONFIG_SYS_DDR_CS1_CONFIG	0x00000000
-#define CONFIG_SYS_DDR_CS1_CONFIG_2	0x00000000
-
-#define CONFIG_SYS_DDR_DATA_INIT	0xdeadbeef
-#define CONFIG_SYS_DDR_INIT_ADDR	0x00000000
-#define CONFIG_SYS_DDR_INIT_EXT_ADDR	0x00000000
-#define CONFIG_SYS_DDR_MODE_CONTROL	0x00000000
-
-#define CONFIG_SYS_DDR_ZQ_CONTROL	0x89080600
-#define CONFIG_SYS_DDR_WRLVL_CONTROL	0x8645F607
-#define CONFIG_SYS_DDR_SR_CNTR		0x00000000
-#define CONFIG_SYS_DDR_RCW_1		0x00000000
-#define CONFIG_SYS_DDR_RCW_2		0x00000000
-#define CONFIG_SYS_DDR_CONTROL		0xC7000000	/* Type = DDR3	*/
-#define CONFIG_SYS_DDR_CONTROL_2	0x24401000
-#define CONFIG_SYS_DDR_TIMING_4		0x00220001
-#define CONFIG_SYS_DDR_TIMING_5		0x02401400
-
-#define CONFIG_SYS_DDR_TIMING_3		0x00020000
-#define CONFIG_SYS_DDR_TIMING_0		0x00330104
-#define CONFIG_SYS_DDR_TIMING_1		0x6f6B4644
-#define CONFIG_SYS_DDR_TIMING_2		0x0FA88CCF
-#define CONFIG_SYS_DDR_CLK_CTRL		0x02000000
-#define CONFIG_SYS_DDR_MODE_1		0x00421422
-#define CONFIG_SYS_DDR_MODE_2		0x04000000
-#define CONFIG_SYS_DDR_INTERVAL		0x0C300100
-
-#else
+#ifndef CONFIG_TARGET_P2020RDB
 #define CONFIG_SYS_DDR_CS0_BNDS		0x0000003f
 #define CONFIG_SYS_DDR_CS0_CONFIG	0x80014302
 #define CONFIG_SYS_DDR_CS0_CONFIG_2	0x00000000
@@ -318,38 +369,33 @@
 /*
  * Memory map
  *
- * 0x0000_0000 0x7fff_ffff	DDR	Up to 2GB cacheable
+ * 0x0000_0000 0x7fff_ffff	DDR		Up to 2GB cacheable
  * 0x8000_0000 0xdfff_ffff	PCI Express Mem	1.5G non-cacheable(PCIe * 3)
+ * 0xec00_0000 0xefff_ffff	NOR flash	Up to 64M non-cacheable	CS0/1
+ * 0xf8f8_0000 0xf8ff_ffff	L2 SRAM		Up to 512K cacheable
+ *   (early boot only)
+ * 0xff80_0000 0xff80_7fff	NAND flash	32K non-cacheable	CS1/0
+ * 0xff98_0000 0xff98_ffff	PMC		64K non-cacheable	CS2
+ * 0xffa0_0000 0xffaf_ffff	CPLD		1M non-cacheable	CS3
+ * 0xffb0_0000 0xffbf_ffff	VSC7385 switch  1M non-cacheable	CS2
  * 0xffc0_0000 0xffc3_ffff	PCI IO range	256k non-cacheable
- *
- * Localbus cacheable (TBD)
- * 0xXXXX_XXXX 0xXXXX_XXXX	SRAM	YZ M Cacheable
- *
- * Localbus non-cacheable
- * 0xec00_0000 0xefff_ffff	FLASH	Up to 64M non-cacheable
- * 0xff80_0000 0xff8f_ffff	NAND flash	1M non-cacheable
- * 0xff90_0000 0xff97_ffff	L2 SDRAM(REV.)  512K cacheable(optional)
- * 0xffa0_0000 0xffaf_ffff	CPLD	1M non-cacheable
- * 0xffb0_0000 0xffbf_ffff	VSC7385 switch  1M non-cacheable
- * 0xffd0_0000 0xffd0_3fff	L1 for stack	16K Cacheable TLB0
- * 0xffe0_0000 0xffef_ffff	CCSR	1M non-cacheable
+ * 0xffd0_0000 0xffd0_3fff	L1 for stack	16K cacheable
+ * 0xffe0_0000 0xffef_ffff	CCSR		1M non-cacheable
  */
-
 
 /*
  * Local Bus Definitions
  */
-#if defined(CONFIG_P1020MBG)
+#if (defined(CONFIG_TARGET_P1020MBG) || defined(CONFIG_TARGET_P1020RDB_PD))
 #define CONFIG_SYS_MAX_FLASH_SECT	512	/* 64M */
 #define CONFIG_SYS_FLASH_BASE		0xec000000
-#elif defined(CONFIG_P1020UTM)
+#elif defined(CONFIG_TARGET_P1020UTM)
 #define CONFIG_SYS_MAX_FLASH_SECT	256	/* 32M */
 #define CONFIG_SYS_FLASH_BASE		0xee000000
 #else
 #define CONFIG_SYS_MAX_FLASH_SECT	128	/* 16M */
 #define CONFIG_SYS_FLASH_BASE		0xef000000
 #endif
-
 
 #ifdef CONFIG_PHYS_64BIT
 #define CONFIG_SYS_FLASH_BASE_PHYS	(0xf00000000ull | CONFIG_SYS_FLASH_BASE)
@@ -388,24 +434,28 @@
 
 #define CONFIG_SYS_NAND_BASE_LIST	{ CONFIG_SYS_NAND_BASE }
 #define CONFIG_SYS_MAX_NAND_DEVICE	1
-#define CONFIG_MTD_NAND_VERIFY_WRITE
 #define CONFIG_CMD_NAND
+#if defined(CONFIG_TARGET_P1020RDB_PD)
+#define CONFIG_SYS_NAND_BLOCK_SIZE	(128 * 1024)
+#else
 #define CONFIG_SYS_NAND_BLOCK_SIZE	(16 * 1024)
-
-/* NAND boot: 4K NAND loader config */
-#define CONFIG_SYS_NAND_SPL_SIZE	0x1000
-#define CONFIG_SYS_NAND_U_BOOT_SIZE	((512 << 10) + CONFIG_SYS_NAND_SPL_SIZE)
-#define CONFIG_SYS_NAND_U_BOOT_DST	(0x11000000 - CONFIG_SYS_NAND_SPL_SIZE)
-#define CONFIG_SYS_NAND_U_BOOT_START	0x11000000
-#define CONFIG_SYS_NAND_U_BOOT_OFFS	(0)
-#define CONFIG_SYS_NAND_U_BOOT_RELOC	0x00010000
-#define CONFIG_SYS_NAND_U_BOOT_RELOC_SP	(CONFIG_SYS_NAND_U_BOOT_RELOC + 0x10000)
+#endif
 
 #define CONFIG_SYS_NAND_BR_PRELIM (BR_PHYS_ADDR(CONFIG_SYS_NAND_BASE_PHYS) \
 	| (2<<BR_DECC_SHIFT)	/* Use HW ECC */ \
 	| BR_PS_8	/* Port Size = 8 bit */ \
 	| BR_MS_FCM	/* MSEL = FCM */ \
 	| BR_V)	/* valid */
+#if defined(CONFIG_TARGET_P1020RDB_PD)
+#define CONFIG_SYS_NAND_OR_PRELIM	(OR_AM_32KB \
+	| OR_FCM_PGS	/* Large Page*/ \
+	| OR_FCM_CSCT \
+	| OR_FCM_CST \
+	| OR_FCM_CHT \
+	| OR_FCM_SCY_1 \
+	| OR_FCM_TRLX \
+	| OR_FCM_EHTR)
+#else
 #define CONFIG_SYS_NAND_OR_PRELIM	(OR_AM_32KB	/* small page */ \
 	| OR_FCM_CSCT \
 	| OR_FCM_CST \
@@ -413,6 +463,7 @@
 	| OR_FCM_SCY_1 \
 	| OR_FCM_TRLX \
 	| OR_FCM_EHTR)
+#endif
 #endif /* CONFIG_NAND_FSL_ELBC */
 
 #define CONFIG_BOARD_EARLY_INIT_R	/* call board_early_init_r function */
@@ -439,7 +490,7 @@
 					GENERATED_GBL_DATA_SIZE)
 #define CONFIG_SYS_INIT_SP_OFFSET	CONFIG_SYS_GBL_DATA_OFFSET
 
-#define CONFIG_SYS_MONITOR_LEN	(256 * 1024)/* Reserve 256 kB for Mon */
+#define CONFIG_SYS_MONITOR_LEN	(768 * 1024)
 #define CONFIG_SYS_MALLOC_LEN	(1024 * 1024)/* Reserved for malloc */
 
 #define CONFIG_SYS_CPLD_BASE	0xffa00000
@@ -461,7 +512,7 @@
 				 OR_GPCM_SCY | OR_GPCM_TRLX | OR_GPCM_EHTR | \
 				 OR_GPCM_EAD)
 
-#ifdef CONFIG_NAND_U_BOOT
+#ifdef CONFIG_NAND
 #define CONFIG_SYS_BR0_PRELIM	CONFIG_SYS_NAND_BR_PRELIM /* NAND Base Addr */
 #define CONFIG_SYS_OR0_PRELIM	CONFIG_SYS_NAND_OR_PRELIM /* NAND Options */
 #define CONFIG_SYS_BR1_PRELIM	CONFIG_FLASH_BR_PRELIM	/* NOR Base Address */
@@ -476,7 +527,6 @@
 #endif
 #define CONFIG_SYS_BR3_PRELIM	CONFIG_CPLD_BR_PRELIM	/* CPLD Base Address */
 #define CONFIG_SYS_OR3_PRELIM	CONFIG_CPLD_OR_PRELIM	/* CPLD Options */
-
 
 /* Vsc7385 switch */
 #ifdef CONFIG_VSC7385_ENET
@@ -501,17 +551,54 @@
 #define CONFIG_VSC7385_IMAGE_SIZE	8192
 #endif
 
+/*
+ * Config the L2 Cache as L2 SRAM
+*/
+#if defined(CONFIG_SPL_BUILD)
+#if defined(CONFIG_SDCARD) || defined(CONFIG_SPIFLASH)
+#define CONFIG_SYS_INIT_L2_ADDR		0xf8f80000
+#define CONFIG_SYS_INIT_L2_ADDR_PHYS	CONFIG_SYS_INIT_L2_ADDR
+#define CONFIG_SYS_INIT_L2_END	(CONFIG_SYS_INIT_L2_ADDR + CONFIG_SYS_L2_SIZE)
+#define CONFIG_SPL_RELOC_TEXT_BASE	0xf8f81000
+#define CONFIG_SPL_GD_ADDR		(CONFIG_SYS_INIT_L2_ADDR + 112 * 1024)
+#define CONFIG_SPL_RELOC_STACK		(CONFIG_SYS_INIT_L2_ADDR + 116 * 1024)
+#define CONFIG_SPL_RELOC_STACK_SIZE	(32 << 10)
+#define CONFIG_SPL_RELOC_MALLOC_ADDR	(CONFIG_SYS_INIT_L2_ADDR + 148 * 1024)
+#if defined(CONFIG_TARGET_P2020RDB)
+#define CONFIG_SPL_RELOC_MALLOC_SIZE	(364 << 10)
+#else
+#define CONFIG_SPL_RELOC_MALLOC_SIZE	(108 << 10)
+#endif
+#elif defined(CONFIG_NAND)
+#ifdef CONFIG_TPL_BUILD
+#define CONFIG_SYS_INIT_L2_ADDR		0xf8f80000
+#define CONFIG_SYS_INIT_L2_ADDR_PHYS	CONFIG_SYS_INIT_L2_ADDR
+#define CONFIG_SYS_INIT_L2_END	(CONFIG_SYS_INIT_L2_ADDR + CONFIG_SYS_L2_SIZE)
+#define CONFIG_SPL_RELOC_TEXT_BASE	0xf8f81000
+#define CONFIG_SPL_RELOC_STACK		(CONFIG_SYS_INIT_L2_ADDR + 192 * 1024)
+#define CONFIG_SPL_RELOC_MALLOC_ADDR	(CONFIG_SYS_INIT_L2_ADDR + 208 * 1024)
+#define CONFIG_SPL_RELOC_MALLOC_SIZE	(48 << 10)
+#define CONFIG_SPL_GD_ADDR		(CONFIG_SYS_INIT_L2_ADDR + 176 * 1024)
+#else
+#define CONFIG_SYS_INIT_L2_ADDR		0xf8f80000
+#define CONFIG_SYS_INIT_L2_ADDR_PHYS	CONFIG_SYS_INIT_L2_ADDR
+#define CONFIG_SYS_INIT_L2_END	(CONFIG_SYS_INIT_L2_ADDR + CONFIG_SYS_L2_SIZE)
+#define CONFIG_SPL_RELOC_TEXT_BASE	(CONFIG_SYS_INIT_L2_END - 0x2000)
+#define CONFIG_SPL_RELOC_STACK		((CONFIG_SYS_INIT_L2_END - 1) & ~0xF)
+#endif /* CONFIG_TPL_BUILD */
+#endif
+#endif
+
 /* Serial Port - controlled on board with jumper J8
  * open - index 2
  * shorted - index 1
  */
 #define CONFIG_CONS_INDEX		1
 #undef CONFIG_SERIAL_SOFTWARE_FIFO
-#define CONFIG_SYS_NS16550
 #define CONFIG_SYS_NS16550_SERIAL
 #define CONFIG_SYS_NS16550_REG_SIZE	1
 #define CONFIG_SYS_NS16550_CLK		get_bus_freq(0)
-#ifdef CONFIG_NAND_SPL
+#if defined(CONFIG_SPL_BUILD) && defined(CONFIG_SPL_INIT_MINIMAL)
 #define CONFIG_NS16550_MIN_FUNCTIONS
 #endif
 
@@ -521,32 +608,17 @@
 #define CONFIG_SYS_NS16550_COM1	(CONFIG_SYS_CCSRBAR+0x4500)
 #define CONFIG_SYS_NS16550_COM2	(CONFIG_SYS_CCSRBAR+0x4600)
 
-/* Use the HUSH parser */
-#define CONFIG_SYS_HUSH_PARSER
-
-/*
- * Pass open firmware flat tree
- */
-#define CONFIG_OF_LIBFDT
-#define CONFIG_OF_BOARD_SETUP
-#define CONFIG_OF_STDOUT_VIA_ALIAS
-
-/* new uImage format support */
-#define CONFIG_FIT
-#define CONFIG_FIT_VERBOSE	/* enable fit_format_{error,warning}() */
-
 /* I2C */
-#define CONFIG_FSL_I2C			/* Use FSL common I2C driver */
-#define CONFIG_HARD_I2C			/* I2C with hardware support */
-#undef CONFIG_SOFT_I2C			/* I2C bit-banged */
-#define CONFIG_I2C_MULTI_BUS
-#define CONFIG_I2C_CMD_TREE
-#define CONFIG_SYS_I2C_SPEED		400000	/* I2C spd and slave address */
+#define CONFIG_SYS_I2C
+#define CONFIG_SYS_I2C_FSL
+#define CONFIG_SYS_FSL_I2C_SPEED	400000
+#define CONFIG_SYS_FSL_I2C_SLAVE	0x7F
+#define CONFIG_SYS_FSL_I2C_OFFSET	0x3000
+#define CONFIG_SYS_FSL_I2C2_SPEED	400000
+#define CONFIG_SYS_FSL_I2C2_SLAVE	0x7F
+#define CONFIG_SYS_FSL_I2C2_OFFSET	0x3100
+#define CONFIG_SYS_I2C_NOPROBES		{ {0, 0x29} }
 #define CONFIG_SYS_I2C_EEPROM_ADDR	0x52
-#define CONFIG_SYS_I2C_SLAVE		0x7F
-#define CONFIG_SYS_I2C_NOPROBES		{{0, 0x29}} /* Don't probe this addr */
-#define CONFIG_SYS_I2C_OFFSET		0x3000
-#define CONFIG_SYS_I2C2_OFFSET		0x3100
 #define CONFIG_SYS_SPD_BUS_NUM		1 /* For rom_loc and flash bank */
 
 /*
@@ -560,7 +632,6 @@
 
 /* enable read and write access to EEPROM */
 #define CONFIG_CMD_EEPROM
-#define CONFIG_SYS_I2C_MULTI_EEPROMS
 #define CONFIG_SYS_I2C_EEPROM_ADDR_LEN 1
 #define CONFIG_SYS_EEPROM_PAGE_WRITE_BITS 3
 #define CONFIG_SYS_EEPROM_PAGE_WRITE_DELAY_MS 5
@@ -569,11 +640,8 @@
  * eSPI - Enhanced SPI
  */
 #define CONFIG_HARD_SPI
-#define CONFIG_FSL_ESPI
 
 #if defined(CONFIG_SPI_FLASH)
-#define CONFIG_SPI_FLASH_SPANSION
-#define CONFIG_CMD_SF
 #define CONFIG_SF_DEFAULT_SPEED	10000000
 #define CONFIG_SF_DEFAULT_MODE	0
 #endif
@@ -624,13 +692,9 @@
 #endif
 #define CONFIG_SYS_PCIE1_IO_SIZE	0x00010000	/* 64k */
 
-#define CONFIG_PCI_PNP	/* do pci plug-and-play */
-#define CONFIG_E1000	/* Defind e1000 pci Ethernet card*/
 #define CONFIG_CMD_PCI
-#define CONFIG_CMD_NET
 
 #define CONFIG_PCI_SCAN_SHOW	/* show pci devices on startup */
-#define CONFIG_DOS_PARTITION
 #endif /* CONFIG_PCI */
 
 #if defined(CONFIG_TSEC_ENET)
@@ -666,11 +730,11 @@
 #ifdef CONFIG_QE
 /* QE microcode/firmware address */
 #define CONFIG_SYS_QE_FMAN_FW_IN_NOR
-#define CONFIG_SYS_QE_FMAN_FW_ADDR	0xefec0000
+#define CONFIG_SYS_QE_FW_ADDR	0xefec0000
 #define CONFIG_SYS_QE_FMAN_FW_LENGTH	0x10000
 #endif /* CONFIG_QE */
 
-#ifdef CONFIG_P1025RDB
+#ifdef CONFIG_TARGET_P1025RDB
 /*
  * QE UEC ethernet configuration
  */
@@ -704,13 +768,12 @@
 #define CONFIG_SYS_UEC5_INTERFACE_TYPE PHY_INTERFACE_MODE_RMII
 #define CONFIG_SYS_UEC5_INTERFACE_SPEED	100
 #endif /* CONFIG_UEC_ETH5 */
-#endif /* CONFIG_P1025RDB */
+#endif /* CONFIG_TARGET_P1025RDB */
 
 /*
  * Environment
  */
-#ifdef CONFIG_SYS_RAMBOOT
-#ifdef CONFIG_RAMBOOT_SPIFLASH
+#ifdef CONFIG_SPIFLASH
 #define CONFIG_ENV_IS_IN_SPI_FLASH
 #define CONFIG_ENV_SPI_BUS	0
 #define CONFIG_ENV_SPI_CS	0
@@ -719,28 +782,28 @@
 #define CONFIG_ENV_SIZE		0x2000	/* 8KB */
 #define CONFIG_ENV_OFFSET	0x100000	/* 1MB */
 #define CONFIG_ENV_SECT_SIZE	0x10000
-#elif defined(CONFIG_RAMBOOT_SDCARD)
+#elif defined(CONFIG_SDCARD)
 #define CONFIG_ENV_IS_IN_MMC
 #define CONFIG_FSL_FIXED_MMC_LOCATION
 #define CONFIG_ENV_SIZE		0x2000
 #define CONFIG_SYS_MMC_ENV_DEV	0
-#elif defined(CONFIG_NAND_U_BOOT)
-#define CONFIG_ENV_IS_IN_NAND
-#define CONFIG_ENV_SIZE		CONFIG_SYS_NAND_BLOCK_SIZE
-#define CONFIG_ENV_OFFSET	((512 * 1024) + CONFIG_SYS_NAND_BLOCK_SIZE)
-#define CONFIG_ENV_RANGE	(3 * CONFIG_ENV_SIZE)
+#elif defined(CONFIG_NAND)
+#ifdef CONFIG_TPL_BUILD
+#define CONFIG_ENV_SIZE		0x2000
+#define CONFIG_ENV_ADDR		(CONFIG_SYS_INIT_L2_ADDR + (160 << 10))
 #else
+#define CONFIG_ENV_SIZE		CONFIG_SYS_NAND_BLOCK_SIZE
+#endif
+#define CONFIG_ENV_IS_IN_NAND
+#define CONFIG_ENV_OFFSET	(1024 * 1024)
+#define CONFIG_ENV_RANGE	(3 * CONFIG_ENV_SIZE)
+#elif defined(CONFIG_SYS_RAMBOOT)
 #define CONFIG_ENV_IS_NOWHERE	/* Store ENV in memory only */
 #define CONFIG_ENV_ADDR		(CONFIG_SYS_MONITOR_BASE - 0x1000)
 #define CONFIG_ENV_SIZE		0x2000
-#endif
 #else
 #define CONFIG_ENV_IS_IN_FLASH
-#if CONFIG_SYS_MONITOR_BASE > 0xfff80000
-#define CONFIG_ENV_ADDR	0xfff80000
-#else
 #define CONFIG_ENV_ADDR	(CONFIG_SYS_MONITOR_BASE - CONFIG_ENV_SECT_SIZE)
-#endif
 #define CONFIG_ENV_SIZE		0x2000
 #define CONFIG_ENV_SECT_SIZE	0x20000 /* 128K (one sector) */
 #endif
@@ -751,15 +814,8 @@
 /*
  * Command line configuration.
  */
-#include <config_cmd_default.h>
-
 #define CONFIG_CMD_IRQ
-#define CONFIG_CMD_PING
-#define CONFIG_CMD_I2C
-#define CONFIG_CMD_MII
 #define CONFIG_CMD_DATE
-#define CONFIG_CMD_ELF
-#define CONFIG_CMD_SETEXPR
 #define CONFIG_CMD_REGINFO
 
 /*
@@ -771,27 +827,18 @@
 #define CONFIG_USB_EHCI
 
 #ifdef CONFIG_USB_EHCI
-#define CONFIG_CMD_USB
 #define CONFIG_EHCI_HCD_INIT_AFTER_RESET
 #define CONFIG_USB_EHCI_FSL
-#define CONFIG_USB_STORAGE
 #endif
 #endif
 
-#define CONFIG_MMC
+#if defined(CONFIG_TARGET_P1020RDB_PD)
+#define CONFIG_USB_MAX_CONTROLLER_COUNT	1
+#endif
 
 #ifdef CONFIG_MMC
 #define CONFIG_FSL_ESDHC
 #define CONFIG_SYS_FSL_ESDHC_ADDR	CONFIG_SYS_MPC85xx_ESDHC_ADDR
-#define CONFIG_CMD_MMC
-#define CONFIG_GENERIC_MMC
-#endif
-
-#if defined(CONFIG_MMC) || defined(CONFIG_USB_EHCI) \
-		 || defined(CONFIG_FSL_SATA)
-#define CONFIG_CMD_EXT2
-#define CONFIG_CMD_FAT
-#define CONFIG_DOS_PARTITION
 #endif
 
 #undef CONFIG_WATCHDOG	/* watchdog disabled */
@@ -802,7 +849,6 @@
 #define CONFIG_SYS_LONGHELP			/* undef to save memory */
 #define CONFIG_CMDLINE_EDITING			/* Command-line editing */
 #define CONFIG_SYS_LOAD_ADDR	0x2000000	/* default load address */
-#define CONFIG_SYS_PROMPT	"=> "		/* Monitor Command Prompt */
 #if defined(CONFIG_CMD_KGDB)
 #define CONFIG_SYS_CBSIZE	1024		/* Console I/O Buffer Size */
 #else
@@ -812,7 +858,6 @@
 	/* Print Buffer Size */
 #define CONFIG_SYS_MAXARGS	16	/* max number of command args */
 #define CONFIG_SYS_BARGSIZE	CONFIG_SYS_CBSIZE/* Boot Argument Buffer Size */
-#define CONFIG_SYS_HZ		1000	/* decrementer freq: 1ms tick */
 
 /*
  * For booting Linux, the board info and command line data
@@ -824,7 +869,6 @@
 
 #if defined(CONFIG_CMD_KGDB)
 #define CONFIG_KGDB_BAUDRATE	230400	/* speed to run kgdb serial port */
-#define CONFIG_KGDB_SER_INDEX	2	/* which serial port to use */
 #endif
 
 /*
@@ -838,7 +882,6 @@
 /* default location for tftp and bootm */
 #define CONFIG_LOADADDR	1000000
 
-#define CONFIG_BOOTDELAY 10	/* -1 disables auto-boot */
 #define CONFIG_BOOTARGS	/* the boot command will set bootargs */
 
 #define CONFIG_BAUDRATE	115200
@@ -884,7 +927,7 @@ i2c mw 18 3 __SW_BOOT_MASK 1; reset
 "consoledev=ttyS0\0"	\
 "ramdiskaddr=2000000\0"	\
 "ramdiskfile=rootfs.ext2.gz.uboot\0"	\
-"fdtaddr=c00000\0"	\
+"fdtaddr=1e00000\0"	\
 "bdev=sda1\0" \
 "jffs2nor=mtdblock3\0"	\
 "norbootaddr=ef080000\0"	\

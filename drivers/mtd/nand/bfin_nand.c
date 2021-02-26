@@ -15,6 +15,7 @@
  */
 
 #include <common.h>
+#include <console.h>
 #include <asm/io.h>
 
 #ifdef DEBUG
@@ -374,9 +375,11 @@ int board_nand_init(struct nand_chip *chip)
 		if (!NAND_IS_512()) {
 			chip->ecc.bytes = 3;
 			chip->ecc.size = 256;
+			chip->ecc.strength = 1;
 		} else {
 			chip->ecc.bytes = 6;
 			chip->ecc.size = 512;
+			chip->ecc.strength = 2;
 		}
 		chip->ecc.mode = NAND_ECC_HW;
 		chip->ecc.calculate = bfin_nfc_calculate_ecc;

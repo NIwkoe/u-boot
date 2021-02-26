@@ -6,23 +6,7 @@
  *
  * Configuration settings for the phyCORE-i.MX31 board.
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __CONFIG_H
@@ -31,12 +15,8 @@
 #include <asm/arch/imx-regs.h>
 
 /* High Level Configuration Options */
-#define CONFIG_ARM1136			/* This is an arm1136 CPU core */
-#define CONFIG_MX31			/* in a mx31 */
+#define CONFIG_MX31			/* This is a mx31 */
 #define CONFIG_MX31_CLK32	32000
-
-#define CONFIG_DISPLAY_CPUINFO
-#define CONFIG_DISPLAY_BOARDINFO
 
 #define CONFIG_CMDLINE_TAG		/* enable passing of ATAGs */
 #define CONFIG_SETUP_MEMORY_TAGS
@@ -51,11 +31,12 @@
  * Hardware drivers
  */
 
-#define CONFIG_HARD_I2C
-#define CONFIG_I2C_MXC
-#define CONFIG_SYS_I2C_BASE		I2C2_BASE_ADDR
+#define CONFIG_SYS_I2C
+#define CONFIG_SYS_I2C_MXC
+#define CONFIG_SYS_I2C_MXC_I2C1		/* enable I2C bus 1 */
+#define CONFIG_SYS_I2C_MXC_I2C2		/* enable I2C bus 2 */
+#define CONFIG_SYS_I2C_MXC_I2C3		/* enable I2C bus 3 */
 #define CONFIG_SYS_I2C_CLK_OFFSET	I2C2_CLK_OFFSET
-#define CONFIG_SYS_I2C_SPEED		100000
 
 #define CONFIG_MXC_UART
 #define CONFIG_MXC_UART_BASE		UART1_BASE
@@ -68,14 +49,8 @@
 /***********************************************************
  * Command definition
  ***********************************************************/
-
-#include <config_cmd_default.h>
-
-#define CONFIG_CMD_PING
 #define CONFIG_CMD_EEPROM
-#define CONFIG_CMD_I2C
 
-#define CONFIG_BOOTDELAY	3
 
 #define MTDPARTS_DEFAULT	"mtdparts=physmap-flash.0:128k(uboot)ro," \
 					"1536k(kernel),-(root)"
@@ -112,7 +87,6 @@
 		"pclk:185925,le:9,ri:17,up:7,lo:10,hs:1,vs:1,"		\
 		"sync:1241513985,vmode:0\0"
 
-
 #define CONFIG_SMC911X
 #define CONFIG_SMC911X_BASE	0xa8000000
 #define CONFIG_SMC911X_32_BIT
@@ -121,7 +95,6 @@
  * Miscellaneous configurable options
  */
 #define CONFIG_SYS_LONGHELP		/* undef to save memory */
-#define CONFIG_SYS_PROMPT		"uboot> "
 /* Console I/O Buffer Size */
 #define CONFIG_SYS_CBSIZE		256
 /* Print Buffer Size */
@@ -137,8 +110,6 @@
 
 #define CONFIG_SYS_LOAD_ADDR		0 /* default load address */
 
-#define CONFIG_SYS_HZ			1000
-
 #define CONFIG_CMDLINE_EDITING
 
 /*
@@ -147,7 +118,6 @@
 #define CONFIG_NR_DRAM_BANKS		1
 #define PHYS_SDRAM_1			0x80000000
 #define PHYS_SDRAM_1_SIZE		(128 * 1024 * 1024)
-#define CONFIG_BOARD_EARLY_INIT_F
 #define CONFIG_SYS_TEXT_BASE		0xA0000000
 
 #define CONFIG_SYS_SDRAM_BASE		PHYS_SDRAM_1
@@ -197,24 +167,16 @@
 #define CONFIG_JFFS2_DEV	"nor0"
 
 /* EET platform additions */
-#ifdef CONFIG_IMX31_PHYCORE_EET
-#define CONFIG_BOARD_LATE_INIT
-
+#ifdef CONFIG_TARGET_IMX31_PHYCORE_EET
 #define CONFIG_MXC_GPIO
 
 #define CONFIG_HARD_SPI
 #define CONFIG_MXC_SPI
-#define CONFIG_CMD_SPI
 
 #define CONFIG_S6E63D6
 
-#define CONFIG_VIDEO
-#define CONFIG_CFB_CONSOLE
 #define CONFIG_VIDEO_MX3
 #define CONFIG_VIDEO_LOGO
-#define CONFIG_VIDEO_SW_CURSOR
-#define CONFIG_VGA_AS_SINGLE_DEVICE
-#define CONFIG_SYS_CONSOLE_IS_IN_ENV
 #define CONFIG_SPLASH_SCREEN
 #define CONFIG_CMD_BMP
 #define CONFIG_BMP_16BPP

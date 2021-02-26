@@ -1,80 +1,79 @@
 /*
- * Xilinx Zynq Serial PS driver
- * Based on existing U-boot serial drivers.
+ * Copyright (C) 2012 Michal Simek <monstr@monstr.eu>
+ * Copyright (C) 2011-2012 Xilinx, Inc. All rights reserved.
+ *
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
+#include <clk.h>
 #include <common.h>
+#include <debug_uart.h>
+#include <dm.h>
+#include <errno.h>
+#include <fdtdec.h>
+#include <watchdog.h>
+#include <asm/io.h>
+#include <linux/compiler.h>
 #include <serial.h>
-
-#include "serial_zynq.h"
+#include <asm/arch/clk.h>
+#include <asm/arch/hardware.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
-#if defined(CONFIG_SERIAL_MULTI)
+#define ZYNQ_UART_SR_TXEMPTY	(1 << 3) /* TX FIFO empty */
+#define ZYNQ_UART_SR_TXACTIVE	(1 << 11)  /* TX active */
+#define ZYNQ_UART_SR_RXEMPTY	0x00000002 /* RX FIFO empty */
 
-/* Multi serial device functions */
-#define DECLARE_ZYNQ_SERIAL_FUNCTIONS(port) \
-    int  zynq_serial##port##_init (void) {\
-	return zynq_serial_init(port);}\
-    void zynq_serial##port##_setbrg (void) {\
-	zynq_serial_setbrg(port);}\
-    int  zynq_serial##port##_getc (void) {\
-	return zynq_serial_getc(port);}\
-    int  zynq_serial##port##_tstc (void) {\
-	return zynq_serial_tstc(port);}\
-    void zynq_serial##port##_putc (const char c) {\
-	zynq_serial_putc(port, c);}\
-    void zynq_serial##port##_puts (const char *s) {\
-	zynq_serial_puts(port, s);}
+#define ZYNQ_UART_CR_TX_EN	0x00000010 /* TX enabled */
+#define ZYNQ_UART_CR_RX_EN	0x00000004 /* RX enabled */
+#define ZYNQ_UART_CR_TXRST	0x00000002 /* TX logic reset */
+#define ZYNQ_UART_CR_RXRST	0x00000001 /* RX logic reset */
 
-/* Serial device descriptor */
-#define INIT_ZYNQ_SERIAL_STRUCTURE(port, name) {\
-	name,\
-	zynq_serial##port##_init,\
-	NULL,\
-	zynq_serial##port##_setbrg,\
-	zynq_serial##port##_getc,\
-	zynq_serial##port##_tstc,\
-	zynq_serial##port##_putc,\
-	zynq_serial##port##_puts, }
+#define ZYNQ_UART_MR_PARITY_NONE	0x00000020  /* No parity mode */
 
-#endif /* CONFIG_SERIAL_MULTI */
+struct uart_zynq {
+	u32 control; /* 0x0 - Control Register [8:0] */
+	u32 mode; /* 0x4 - Mode Register [10:0] */
+	u32 reserved1[4];
+	u32 baud_rate_gen; /* 0x18 - Baud Rate Generator [15:0] */
+	u32 reserved2[4];
+	u32 channel_sts; /* 0x2c - Channel Status [11:0] */
+	u32 tx_rx_fifo; /* 0x30 - FIFO [15:0] or [7:0] */
+	u32 baud_rate_divider; /* 0x34 - Baud Rate Divider [7:0] */
+};
+
+struct zynq_uart_priv {
+	struct uart_zynq *regs;
+};
 
 /* Set up the baud rate in gd struct */
-static void _zynq_serial_setbrg(int base)
+static void _uart_zynq_serial_setbrg(struct uart_zynq *regs,
+				     unsigned long clock, unsigned long baud)
 {
-	/*              master clock
-	 * Baud rate = ---------------
-	 *              bgen*(bdiv+1)
-	 */
-	long baud = gd->baudrate;
-
-	/* Variables to vary. */
-	unsigned int bdiv, bgen;
-	unsigned int master_clock;
-
 	/* Calculation results. */
-	long calc_baud = 0;
-	unsigned int calc_bauderror;
+	unsigned int calc_bauderror, bdiv, bgen;
+	unsigned long calc_baud = 0;
 
-	if (base == ZYNQUART0_BASE)
-		master_clock = ZYNQUART0_MASTER;
-	else if (base == ZYNQUART1_BASE)
-		master_clock = ZYNQUART1_MASTER;
-	else
-		return;
+	/* Covering case where input clock is so slow */
+	if (clock < 1000000 && baud > 4800)
+		baud = 4800;
 
-	/* Find acceptable values for baud generation. */
+	/*                master clock
+	 * Baud rate = ------------------
+	 *              bgen * (bdiv + 1)
+	 *
+	 * Find acceptable values for baud generation.
+	 */
 	for (bdiv = 4; bdiv < 255; bdiv++) {
-
-		bgen = master_clock / (baud * (bdiv + 1));
+		bgen = clock / (baud * (bdiv + 1));
 		if (bgen < 2 || bgen > 65535)
 			continue;
 
-		calc_baud = master_clock / (bgen * (bdiv + 1));
+		calc_baud = clock / (bgen * (bdiv + 1));
 
-		/* Use first calculated baudrate with an acceptable
-		 * (<3%) error.
+		/*
+		 * Use first calculated baudrate with
+		 * an acceptable (<3%) error
 		 */
 		if (baud > calc_baud)
 			calc_bauderror = baud - calc_baud;
@@ -82,136 +81,156 @@ static void _zynq_serial_setbrg(int base)
 			calc_bauderror = calc_baud - baud;
 		if (((calc_bauderror * 100) / baud) < 3)
 			break;
-
 	}
 
-	zynq_uart_writel(base, BAUDDIV, bdiv);
-	zynq_uart_writel(base, BAUDGEN, bgen);
+	writel(bdiv, &regs->baud_rate_divider);
+	writel(bgen, &regs->baud_rate_gen);
 }
 
 /* Initialize the UART, with...some settings. */
-static int _zynq_serial_init(int base)
+static void _uart_zynq_serial_init(struct uart_zynq *regs)
 {
-	zynq_uart_writel(base, CR, 0x17); /* RX/TX enabled & reset */
-	zynq_uart_writel(base, MR, 0x20); /* 8 bit, no parity */
-	_zynq_serial_setbrg(base);
+	/* RX/TX enabled & reset */
+	writel(ZYNQ_UART_CR_TX_EN | ZYNQ_UART_CR_RX_EN | ZYNQ_UART_CR_TXRST | \
+					ZYNQ_UART_CR_RXRST, &regs->control);
+	writel(ZYNQ_UART_MR_PARITY_NONE, &regs->mode); /* 8 bit, no parity */
+}
+
+static int _uart_zynq_serial_putc(struct uart_zynq *regs, const char c)
+{
+	if (!(readl(&regs->channel_sts) & ZYNQ_UART_SR_TXEMPTY))
+		return -EAGAIN;
+
+	writel(c, &regs->tx_rx_fifo);
+
 	return 0;
 }
 
-/* Write a char to the Tx buffer */
-static void _zynq_serial_putc(int base, char c)
+int zynq_serial_setbrg(struct udevice *dev, int baudrate)
 {
-	while ((zynq_uart_readl(base, SR) & ZYNQUART_SR_TXFULL) != 0)
-		;
-	if (c == '\n') {
-		zynq_uart_writel(base, FIFO,'\r');
-		while ((zynq_uart_readl(base, SR) & ZYNQUART_SR_TXFULL) != 0)
-			;
+	struct zynq_uart_priv *priv = dev_get_priv(dev);
+	unsigned long clock;
+
+#if defined(CONFIG_CLK) || defined(CONFIG_SPL_CLK)
+	int ret;
+	struct clk clk;
+
+	ret = clk_get_by_index(dev, 0, &clk);
+	if (ret < 0) {
+		dev_err(dev, "failed to get clock\n");
+		return ret;
 	}
-	zynq_uart_writel(base, FIFO, c);
-}
 
-/* Write a null-terminated string to the UART */
-static void _zynq_serial_puts(int base, const char *s)
-{
-	while (*s)
-		_zynq_serial_putc(base, *s++);
-}
+	clock = clk_get_rate(&clk);
+	if (IS_ERR_VALUE(clock)) {
+		dev_err(dev, "failed to get rate\n");
+		return clock;
+	}
+	debug("%s: CLK %ld\n", __func__, clock);
 
-/* Test character presence in Rx buffer */
-static int _zynq_serial_tstc(int base)
-{
-	return (zynq_uart_readl(base, SR) & ZYNQUART_SR_RXEMPTY) == 0;
-}
-
-/* Get a char from Rx buffer */
-static int _zynq_serial_getc(int base)
-{
-	while (!_zynq_serial_tstc(base));
-	return zynq_uart_readl(base, FIFO);
-}
-
-#if defined(CONFIG_SERIAL_MULTI)
-void zynq_serial_setbrg(int port)
-{
-	if (port == 0)
-		_zynq_serial_setbrg(ZYNQUART0_BASE);
-	if (port == 1)
-		_zynq_serial_setbrg(ZYNQUART1_BASE);
-}
-int zynq_serial_init(int port)
-{
-	if (port == 0)
-		return _zynq_serial_init(ZYNQUART0_BASE);
-	if (port == 1)
-		return _zynq_serial_init(ZYNQUART1_BASE);
-	return 0;
-}
-void zynq_serial_putc(int port, char c)
-{
-	if (port == 0)
-		_zynq_serial_putc(ZYNQUART0_BASE, c);
-	if (port == 1)
-		_zynq_serial_putc(ZYNQUART1_BASE, c);
-}
-void zynq_serial_puts(int port, const char *s)
-{
-	if (port == 0)
-		_zynq_serial_puts(ZYNQUART0_BASE, s);
-	if (port == 1)
-		_zynq_serial_puts(ZYNQUART1_BASE, s);
-}
-int zynq_serial_getc(int port)
-{
-	if (port == 0)
-		return _zynq_serial_getc(ZYNQUART0_BASE);
-	if (port == 1)
-		return _zynq_serial_getc(ZYNQUART1_BASE);
-	return 0;
-}
-int zynq_serial_tstc(int port)
-{
-	if (port == 0)
-		return _zynq_serial_tstc(ZYNQUART0_BASE);
-	if (port == 1)
-		return _zynq_serial_tstc(ZYNQUART1_BASE);
-	return 0;
-}
-
-#ifdef CONFIG_ZYNQ_UART0
-DECLARE_ZYNQ_SERIAL_FUNCTIONS(0);
-struct serial_device zynq_serial0_device =
-	INIT_ZYNQ_SERIAL_STRUCTURE(0, "zynquart0");
-#endif
-#ifdef CONFIG_ZYNQ_UART1
-DECLARE_ZYNQ_SERIAL_FUNCTIONS(1);
-struct serial_device zynq_serial1_device =
-	INIT_ZYNQ_SERIAL_STRUCTURE(1, "zynquart1");
-#endif
-
+	ret = clk_enable(&clk);
+	if (ret && ret != -ENOSYS) {
+		dev_err(dev, "failed to enable clock\n");
+		return ret;
+	}
 #else
-void serial_setbrg(void)
-{
-	_zynq_serial_setbrg(ZYNQUART_BASE);
+	clock = get_uart_clk(0);
+#endif
+	_uart_zynq_serial_setbrg(priv->regs, clock, baudrate);
+
+	return 0;
 }
-int serial_init(void)
+
+static int zynq_serial_probe(struct udevice *dev)
 {
-	return _zynq_serial_init(ZYNQUART_BASE);
+	struct zynq_uart_priv *priv = dev_get_priv(dev);
+
+	_uart_zynq_serial_init(priv->regs);
+
+	return 0;
 }
-void serial_putc(char c)
+
+static int zynq_serial_getc(struct udevice *dev)
 {
-	_zynq_serial_putc(ZYNQUART_BASE, c);
+	struct zynq_uart_priv *priv = dev_get_priv(dev);
+	struct uart_zynq *regs = priv->regs;
+
+	if (readl(&regs->channel_sts) & ZYNQ_UART_SR_RXEMPTY)
+		return -EAGAIN;
+
+	return readl(&regs->tx_rx_fifo);
 }
-void serial_puts(const char *s)
+
+static int zynq_serial_putc(struct udevice *dev, const char ch)
 {
-	_zynq_serial_puts(ZYNQUART_BASE, s);
+	struct zynq_uart_priv *priv = dev_get_priv(dev);
+
+	return _uart_zynq_serial_putc(priv->regs, ch);
 }
-int serial_getc(void)
+
+static int zynq_serial_pending(struct udevice *dev, bool input)
 {
-	return _zynq_serial_getc(ZYNQUART_BASE);
+	struct zynq_uart_priv *priv = dev_get_priv(dev);
+	struct uart_zynq *regs = priv->regs;
+
+	if (input)
+		return !(readl(&regs->channel_sts) & ZYNQ_UART_SR_RXEMPTY);
+	else
+		return !!(readl(&regs->channel_sts) & ZYNQ_UART_SR_TXACTIVE);
 }
-int serial_tstc(void)
+
+static int zynq_serial_ofdata_to_platdata(struct udevice *dev)
 {
-	return _zynq_serial_tstc(ZYNQUART_BASE);
+	struct zynq_uart_priv *priv = dev_get_priv(dev);
+
+	priv->regs = (struct uart_zynq *)dev_get_addr(dev);
+
+	return 0;
 }
+
+static const struct dm_serial_ops zynq_serial_ops = {
+	.putc = zynq_serial_putc,
+	.pending = zynq_serial_pending,
+	.getc = zynq_serial_getc,
+	.setbrg = zynq_serial_setbrg,
+};
+
+static const struct udevice_id zynq_serial_ids[] = {
+	{ .compatible = "xlnx,xuartps" },
+	{ .compatible = "cdns,uart-r1p8" },
+	{ .compatible = "cdns,uart-r1p12" },
+	{ }
+};
+
+U_BOOT_DRIVER(serial_zynq) = {
+	.name	= "serial_zynq",
+	.id	= UCLASS_SERIAL,
+	.of_match = zynq_serial_ids,
+	.ofdata_to_platdata = zynq_serial_ofdata_to_platdata,
+	.priv_auto_alloc_size = sizeof(struct zynq_uart_priv),
+	.probe = zynq_serial_probe,
+	.ops	= &zynq_serial_ops,
+	.flags = DM_FLAG_PRE_RELOC,
+};
+
+#ifdef CONFIG_DEBUG_UART_ZYNQ
+static inline void _debug_uart_init(void)
+{
+	struct uart_zynq *regs = (struct uart_zynq *)CONFIG_DEBUG_UART_BASE;
+
+	_uart_zynq_serial_init(regs);
+	_uart_zynq_serial_setbrg(regs, CONFIG_DEBUG_UART_CLOCK,
+				 CONFIG_BAUDRATE);
+}
+
+static inline void _debug_uart_putc(int ch)
+{
+	struct uart_zynq *regs = (struct uart_zynq *)CONFIG_DEBUG_UART_BASE;
+
+	while (_uart_zynq_serial_putc(regs, ch) == -EAGAIN)
+		WATCHDOG_RESET();
+}
+
+DEBUG_UART_FUNCS
+
 #endif

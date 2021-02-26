@@ -11,26 +11,12 @@
  *	Syed Mohammed Khasim <khasim@ti.com>
  *
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 #include <common.h>
-#ifdef CONFIG_STATUS_LED
+#include <dm.h>
+#include <ns16550.h>
+#ifdef CONFIG_LED_STATUS
 #include <status_led.h>
 #endif
 #include <twl4030.h>
@@ -42,6 +28,11 @@
 #include <asm/arch/sys_proto.h>
 #include <asm/gpio.h>
 #include <asm/mach-types.h>
+#include <asm/omap_musb.h>
+#include <linux/errno.h>
+#include <linux/usb/ch9.h>
+#include <linux/usb/gadget.h>
+#include <linux/usb/musb.h>
 #include "beagle.h"
 #include <command.h>
 
@@ -67,6 +58,7 @@
 #define BBTOYS_LCD			0x03000B00
 #define BCT_BRETTL3			0x01000F00
 #define BCT_BRETTL4			0x02000F00
+#define LSR_COM6L_ADPT			0x01001300
 #define BEAGLE_NO_EEPROM		0xffffffff
 
 DECLARE_GLOBAL_DATA_PTR;
@@ -80,6 +72,18 @@ static struct {
 	char env_setting[64];
 } expansion_config;
 
+static const struct ns16550_platdata beagle_serial = {
+	.base = OMAP34XX_UART3,
+	.reg_shift = 2,
+	.clock = V_NS16550_CLK,
+	.fcr = UART_FCR_DEFVAL,
+};
+
+U_BOOT_DEVICE(beagle_uart) = {
+	"ns16550_serial",
+	&beagle_serial
+};
+
 /*
  * Routine: board_init
  * Description: Early hardware init.
@@ -92,8 +96,8 @@ int board_init(void)
 	/* boot param addr */
 	gd->bd->bi_boot_params = (OMAP34XX_SDRC_CS0 + 0x100);
 
-#if defined(CONFIG_STATUS_LED) && defined(STATUS_LED_BOOT)
-	status_led_set (STATUS_LED_BOOT, STATUS_LED_ON);
+#if defined(CONFIG_LED_STATUS) && defined(CONFIG_LED_STATUS_BOOT_ENABLE)
+	status_led_set(CONFIG_LED_STATUS_BOOT, CONFIG_LED_STATUS_ON);
 #endif
 
 	return 0;
@@ -102,32 +106,33 @@ int board_init(void)
 /*
  * Routine: get_board_revision
  * Description: Detect if we are running on a Beagle revision Ax/Bx,
- *		C1/2/3, C4 or xM. This can be done by reading
+ *		C1/2/3, C4, xM Ax/Bx or xM Cx. This can be done by reading
  *		the level of GPIO173, GPIO172 and GPIO171. This should
  *		result in
  *		GPIO173, GPIO172, GPIO171: 1 1 1 => Ax/Bx
  *		GPIO173, GPIO172, GPIO171: 1 1 0 => C1/2/3
  *		GPIO173, GPIO172, GPIO171: 1 0 1 => C4
- *		GPIO173, GPIO172, GPIO171: 0 0 0 => xM
+ *		GPIO173, GPIO172, GPIO171: 0 1 0 => xM Cx
+ *		GPIO173, GPIO172, GPIO171: 0 0 0 => xM Ax/Bx
  */
 static int get_board_revision(void)
 {
-	int revision;
+	static int revision = -1;
 
-	if (!gpio_request(171, "") &&
-	    !gpio_request(172, "") &&
-	    !gpio_request(173, "")) {
+	if (revision == -1) {
+		if (!gpio_request(171, "rev0") &&
+		    !gpio_request(172, "rev1") &&
+		    !gpio_request(173, "rev2")) {
+			gpio_direction_input(171);
+			gpio_direction_input(172);
+			gpio_direction_input(173);
 
-		gpio_direction_input(171);
-		gpio_direction_input(172);
-		gpio_direction_input(173);
-
-		revision = gpio_get_value(173) << 2 |
-			   gpio_get_value(172) << 1 |
-			   gpio_get_value(171);
-	} else {
-		printf("Error: unable to acquire board revision GPIOs\n");
-		revision = -1;
+			revision = gpio_get_value(173) << 2 |
+				gpio_get_value(172) << 1 |
+				gpio_get_value(171);
+		} else {
+			printf("Error: unable to acquire board revision GPIOs\n");
+		}
 	}
 
 	return revision;
@@ -139,8 +144,7 @@ static int get_board_revision(void)
  * Description: If we use SPL then there is no x-loader nor config header
  * so we have to setup the DDR timings ourself on both banks.
  */
-void get_board_mem_timings(u32 *mcfg, u32 *ctrla, u32 *ctrlb, u32 *rfr_ctrl,
-		u32 *mr)
+void get_board_mem_timings(struct board_sdrc_timings *timings)
 {
 	int pop_mfr, pop_id;
 
@@ -151,54 +155,53 @@ void get_board_mem_timings(u32 *mcfg, u32 *ctrla, u32 *ctrlb, u32 *rfr_ctrl,
 	 */
 	identify_nand_chip(&pop_mfr, &pop_id);
 
-	*mr = MICRON_V_MR_165;
+	timings->mr = MICRON_V_MR_165;
 	switch (get_board_revision()) {
 	case REVISION_C4:
 		if (pop_mfr == NAND_MFR_STMICRO && pop_id == 0xba) {
 			/* 512MB DDR */
-			*mcfg = NUMONYX_V_MCFG_165(512 << 20);
-			*ctrla = NUMONYX_V_ACTIMA_165;
-			*ctrlb = NUMONYX_V_ACTIMB_165;
-			*rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_165MHz;
+			timings->mcfg = NUMONYX_V_MCFG_165(512 << 20);
+			timings->ctrla = NUMONYX_V_ACTIMA_165;
+			timings->ctrlb = NUMONYX_V_ACTIMB_165;
+			timings->rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_165MHz;
 			break;
 		} else if (pop_mfr == NAND_MFR_MICRON && pop_id == 0xba) {
 			/* Beagleboard Rev C4, 512MB Nand/256MB DDR*/
-			*mcfg = MICRON_V_MCFG_165(128 << 20);
-			*ctrla = MICRON_V_ACTIMA_165;
-			*ctrlb = MICRON_V_ACTIMB_165;
-			*rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_165MHz;
+			timings->mcfg = MICRON_V_MCFG_165(128 << 20);
+			timings->ctrla = MICRON_V_ACTIMA_165;
+			timings->ctrlb = MICRON_V_ACTIMB_165;
+			timings->rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_165MHz;
 			break;
 		} else if (pop_mfr == NAND_MFR_MICRON && pop_id == 0xbc) {
 			/* Beagleboard Rev C5, 256MB DDR */
-			*mcfg = MICRON_V_MCFG_200(256 << 20);
-			*ctrla = MICRON_V_ACTIMA_200;
-			*ctrlb = MICRON_V_ACTIMB_200;
-			*rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_200MHz;
+			timings->mcfg = MICRON_V_MCFG_200(256 << 20);
+			timings->ctrla = MICRON_V_ACTIMA_200;
+			timings->ctrlb = MICRON_V_ACTIMB_200;
+			timings->rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_200MHz;
 			break;
 		}
-	case REVISION_XM_A:
-	case REVISION_XM_B:
+	case REVISION_XM_AB:
 	case REVISION_XM_C:
 		if (pop_mfr == 0) {
 			/* 256MB DDR */
-			*mcfg = MICRON_V_MCFG_200(256 << 20);
-			*ctrla = MICRON_V_ACTIMA_200;
-			*ctrlb = MICRON_V_ACTIMB_200;
-			*rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_200MHz;
+			timings->mcfg = MICRON_V_MCFG_200(256 << 20);
+			timings->ctrla = MICRON_V_ACTIMA_200;
+			timings->ctrlb = MICRON_V_ACTIMB_200;
+			timings->rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_200MHz;
 		} else {
 			/* 512MB DDR */
-			*mcfg = NUMONYX_V_MCFG_165(512 << 20);
-			*ctrla = NUMONYX_V_ACTIMA_165;
-			*ctrlb = NUMONYX_V_ACTIMB_165;
-			*rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_165MHz;
+			timings->mcfg = NUMONYX_V_MCFG_165(512 << 20);
+			timings->ctrla = NUMONYX_V_ACTIMA_165;
+			timings->ctrlb = NUMONYX_V_ACTIMB_165;
+			timings->rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_165MHz;
 		}
 		break;
 	default:
 		/* Assume 128MB and Micron/165MHz timings to be safe */
-		*mcfg = MICRON_V_MCFG_165(128 << 20);
-		*ctrla = MICRON_V_ACTIMA_165;
-		*ctrlb = MICRON_V_ACTIMB_165;
-		*rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_165MHz;
+		timings->mcfg = MICRON_V_MCFG_165(128 << 20);
+		timings->ctrla = MICRON_V_ACTIMA_165;
+		timings->ctrlb = MICRON_V_ACTIMB_165;
+		timings->rfr_ctrl = SDP_3430_SDRC_RFR_CTRL_165MHz;
 	}
 }
 #endif
@@ -223,6 +226,14 @@ static unsigned int get_expansion_id(void)
 	i2c_read(EXPANSION_EEPROM_I2C_ADDRESS, 0, 1, (u8 *)&expansion_config,
 		 sizeof(expansion_config));
 
+	/* retry reading configuration data with 16bit addressing */
+	if ((expansion_config.device_vendor == 0xFFFFFF00) ||
+	    (expansion_config.device_vendor == 0xFFFFFFFF)) {
+		printf("EEPROM is blank or 8bit addressing failed: retrying with 16bit:\n");
+		i2c_read(EXPANSION_EEPROM_I2C_ADDRESS, 0, 2, (u8 *)&expansion_config,
+			 sizeof(expansion_config));
+	}
+
 	i2c_set_bus_num(TWL4030_I2C_BUS);
 
 	return expansion_config.device_vendor;
@@ -242,8 +253,7 @@ static void beagle_display_init(void)
 	case REVISION_C4:
 		omap3_dss_panel_config(&dvid_cfg);
 		break;
-	case REVISION_XM_A:
-	case REVISION_XM_B:
+	case REVISION_XM_AB:
 	case REVISION_XM_C:
 	default:
 		omap3_dss_panel_config(&dvid_cfg_xm);
@@ -262,12 +272,11 @@ static void beagle_dvi_pup(void)
 	case REVISION_AXBX:
 	case REVISION_CX:
 	case REVISION_C4:
-	case REVISION_XM_A:
-		gpio_request(170, "");
+		gpio_request(170, "dvi");
 		gpio_direction_output(170, 0);
 		gpio_set_value(170, 1);
 		break;
-	case REVISION_XM_B:
+	case REVISION_XM_AB:
 	case REVISION_XM_C:
 	default:
 		#define GPIODATADIR1 (TWL4030_BASEADD_GPIO+3)
@@ -285,6 +294,33 @@ static void beagle_dvi_pup(void)
 }
 #endif
 
+#ifdef CONFIG_USB_MUSB_OMAP2PLUS
+static struct musb_hdrc_config musb_config = {
+	.multipoint     = 1,
+	.dyn_fifo       = 1,
+	.num_eps        = 16,
+	.ram_bits       = 12,
+};
+
+static struct omap_musb_board_data musb_board_data = {
+	.interface_type	= MUSB_INTERFACE_ULPI,
+};
+
+static struct musb_hdrc_platform_data musb_plat = {
+#if defined(CONFIG_USB_MUSB_HOST)
+	.mode           = MUSB_HOST,
+#elif defined(CONFIG_USB_MUSB_GADGET)
+	.mode		= MUSB_PERIPHERAL,
+#else
+#error "Please define either CONFIG_USB_MUSB_HOST or CONFIG_USB_MUSB_GADGET"
+#endif
+	.config         = &musb_config,
+	.power          = 100,
+	.platform_ops	= &omap2430_ops,
+	.board_data	= &musb_board_data,
+};
+#endif
+
 /*
  * Routine: misc_init_r
  * Description: Configure board specific parts
@@ -294,9 +330,13 @@ int misc_init_r(void)
 	struct gpio *gpio5_base = (struct gpio *)OMAP34XX_GPIO5_BASE;
 	struct gpio *gpio6_base = (struct gpio *)OMAP34XX_GPIO6_BASE;
 	struct control_prog_io *prog_io_base = (struct control_prog_io *)OMAP34XX_CTRL_BASE;
+	bool generate_fake_mac = false;
+	u32 value;
 
 	/* Enable i2c2 pullup resisters */
-	writel(~(PRG_I2C2_PULLUPRESX), &prog_io_base->io1);
+	value = readl(&prog_io_base->io1);
+	value &= ~(PRG_I2C2_PULLUPRESX);
+	writel(value, &prog_io_base->io1);
 
 	switch (get_board_revision()) {
 	case REVISION_AXBX:
@@ -318,25 +358,16 @@ int misc_init_r(void)
 					TWL4030_PM_RECEIVER_VAUX2_DEV_GRP,
 					TWL4030_PM_RECEIVER_DEV_GRP_P1);
 		break;
-	case REVISION_XM_A:
-		printf("Beagle xM Rev A\n");
-		setenv("beaglerev", "xMA");
+	case REVISION_XM_AB:
+		printf("Beagle xM Rev A/B\n");
+		setenv("beaglerev", "xMAB");
 		MUX_BEAGLE_XM();
 		/* Set VAUX2 to 1.8V for EHCI PHY */
 		twl4030_pmrecv_vsel_cfg(TWL4030_PM_RECEIVER_VAUX2_DEDICATED,
 					TWL4030_PM_RECEIVER_VAUX2_VSEL_18,
 					TWL4030_PM_RECEIVER_VAUX2_DEV_GRP,
 					TWL4030_PM_RECEIVER_DEV_GRP_P1);
-		break;
-	case REVISION_XM_B:
-		printf("Beagle xM Rev B\n");
-		setenv("beaglerev", "xMB");
-		MUX_BEAGLE_XM();
-		/* Set VAUX2 to 1.8V for EHCI PHY */
-		twl4030_pmrecv_vsel_cfg(TWL4030_PM_RECEIVER_VAUX2_DEDICATED,
-					TWL4030_PM_RECEIVER_VAUX2_VSEL_18,
-					TWL4030_PM_RECEIVER_VAUX2_DEV_GRP,
-					TWL4030_PM_RECEIVER_DEV_GRP_P1);
+		generate_fake_mac = true;
 		break;
 	case REVISION_XM_C:
 		printf("Beagle xM Rev C\n");
@@ -347,6 +378,7 @@ int misc_init_r(void)
 					TWL4030_PM_RECEIVER_VAUX2_VSEL_18,
 					TWL4030_PM_RECEIVER_VAUX2_DEV_GRP,
 					TWL4030_PM_RECEIVER_DEV_GRP_P1);
+		generate_fake_mac = true;
 		break;
 	default:
 		printf("Beagle unknown 0x%02x\n", get_board_revision());
@@ -356,6 +388,7 @@ int misc_init_r(void)
 					TWL4030_PM_RECEIVER_VAUX2_VSEL_18,
 					TWL4030_PM_RECEIVER_VAUX2_DEV_GRP,
 					TWL4030_PM_RECEIVER_DEV_GRP_P1);
+		generate_fake_mac = true;
 	}
 
 	switch (get_expansion_id()) {
@@ -423,6 +456,11 @@ int misc_init_r(void)
 	case BCT_BRETTL4:
 		printf("Recognized bct electronic GmbH brettl4 board\n");
 		break;
+	case LSR_COM6L_ADPT:
+		printf("Recognized LSR COM6L Adapter Board\n");
+		MUX_BBTOYS_WIFI()
+		setenv("buddy", "lsr-com6l-adpt");
+		break;
 	case BEAGLE_NO_EEPROM:
 		printf("No EEPROM on expansion board\n");
 		setenv("buddy", "none");
@@ -438,8 +476,7 @@ int misc_init_r(void)
 
 	twl4030_power_init();
 	switch (get_board_revision()) {
-	case REVISION_XM_A:
-	case REVISION_XM_B:
+	case REVISION_XM_AB:
 		twl4030_led_init(TWL4030_LED_LEDEN_LEDBON);
 		break;
 	default:
@@ -458,13 +495,20 @@ int misc_init_r(void)
 	writel(~(GPIO31 | GPIO30 | GPIO29 | GPIO28 | GPIO22 | GPIO21 |
 		GPIO15 | GPIO14 | GPIO13 | GPIO12), &gpio5_base->oe);
 
-	dieid_num_r();
+	omap_die_id_display();
 
 #ifdef CONFIG_VIDEO_OMAP3
 	beagle_dvi_pup();
 	beagle_display_init();
 	omap3_dss_enable();
 #endif
+
+#ifdef CONFIG_USB_MUSB_OMAP2PLUS
+	musb_register(&musb_plat, &musb_board_data, (void *)MUSB_BASE);
+#endif
+
+	if (generate_fake_mac)
+		omap_die_id_usbethaddr();
 
 	return 0;
 }
@@ -483,8 +527,14 @@ void set_muxconf_regs(void)
 #if defined(CONFIG_GENERIC_MMC) && !defined(CONFIG_SPL_BUILD)
 int board_mmc_init(bd_t *bis)
 {
-	omap_mmc_init(0, 0, 0);
-	return 0;
+	return omap_mmc_init(0, 0, 0, -1, -1);
+}
+#endif
+
+#if defined(CONFIG_GENERIC_MMC)
+void board_mmc_power_init(void)
+{
+	twl4030_power_mmc_init(0);
 }
 #endif
 
@@ -502,14 +552,22 @@ static struct omap_usbhs_board_data usbhs_bdata = {
 	.port_mode[2] = OMAP_USBHS_PORT_MODE_UNUSED
 };
 
-int ehci_hcd_init(void)
+int ehci_hcd_init(int index, enum usb_init_type init,
+		struct ehci_hccr **hccr, struct ehci_hcor **hcor)
 {
-	return omap_ehci_hcd_init(&usbhs_bdata);
+	return omap_ehci_hcd_init(index, &usbhs_bdata, hccr, hcor);
 }
 
-int ehci_hcd_stop(void)
+int ehci_hcd_stop(int index)
 {
 	return omap_ehci_hcd_stop();
 }
 
 #endif /* CONFIG_USB_EHCI */
+
+#if defined(CONFIG_USB_ETHER) && defined(CONFIG_USB_MUSB_GADGET)
+int board_eth_init(bd_t *bis)
+{
+	return usb_eth_initialize(bis);
+}
+#endif

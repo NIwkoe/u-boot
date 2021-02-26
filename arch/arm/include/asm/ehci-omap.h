@@ -6,17 +6,7 @@
  * Copyright (C) 2011 Texas Instruments Incorporated - http://www.ti.com*
  * Author: Govindraj R <govindraj.raja@ti.com>
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2  of
- * the License as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * SPDX-License-Identifier:	GPL-2.0
  */
 
 #ifndef _OMAP_COMMON_EHCI_H_
@@ -42,6 +32,7 @@ enum usbhs_omap_port_mode {
 /* Values of UHH_REVISION - Note: these are not given in the TRM */
 #define OMAP_USBHS_REV1					0x00000010 /* OMAP3 */
 #define OMAP_USBHS_REV2					0x50700100 /* OMAP4 */
+#define OMAP_USBHS_REV2_1				0x50700101 /* OMAP5 */
 
 /* UHH Register Set */
 #define OMAP_UHH_HOSTCONFIG_INCR4_BURST_EN		(1 << 2)
@@ -60,6 +51,7 @@ enum usbhs_omap_port_mode {
 #define OMAP_P2_MODE_CLEAR				(3 << 18)
 #define OMAP_P2_MODE_TLL				(1 << 18)
 #define OMAP_P2_MODE_HSIC				(3 << 18)
+#define OMAP_P3_MODE_CLEAR				(3 << 20)
 #define OMAP_P3_MODE_HSIC				(3 << 20)
 
 /* EHCI Register Set */
@@ -136,7 +128,15 @@ struct omap_ehci {
 	u32 insreg08;		/* 0xb0 */
 };
 
-int omap_ehci_hcd_init(struct omap_usbhs_board_data *usbhs_pdata);
+/*
+ * FIXME: forward declaration of this structs needed because omap got the
+ * ehci implementation backwards. move out ehci_hcd_x from board files
+ */
+struct ehci_hccr;
+struct ehci_hcor;
+
+int omap_ehci_hcd_init(int index, struct omap_usbhs_board_data *usbhs_pdata,
+		       struct ehci_hccr **hccr, struct ehci_hcor **hcor);
 int omap_ehci_hcd_stop(void);
 
 #endif /* _OMAP_COMMON_EHCI_H_ */

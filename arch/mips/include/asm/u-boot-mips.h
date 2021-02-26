@@ -1,11 +1,12 @@
 /*
- * This file is released under the terms of GPL v2 and any later version.
- * See the file COPYING in the root directory of the source tree for details.
- *
- * Copyright (C) 2003 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
-extern ulong uboot_end_data;
-extern ulong uboot_end;
+#ifndef _U_BOOT_MIPS_H_
+#define _U_BOOT_MIPS_H_
 
-extern int incaip_set_cpuclk(void);
+void exc_handler(void);
+void except_vec3_generic(void);
+void except_vec_ejtag_debug(void);
+
+#endif /* _U_BOOT_MIPS_H_ */

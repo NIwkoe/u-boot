@@ -4,35 +4,25 @@
  * Copyright (c) 2011 The Chromium OS Authors.
  * (C) Copyright 2004 DENX Software Engineering, Wolfgang Denk, wd@denx.de
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
+#include <console.h>
+#include <dm.h>
+#include <errno.h>
 #include <stdio_dev.h>
 #include <input.h>
+#ifdef CONFIG_DM_KEYBOARD
+#include <keyboard.h>
+#endif
 #include <linux/input.h>
 
 enum {
 	/* These correspond to the lights on the keyboard */
-	FLAG_NUM_LOCK		= 1 << 0,
-	FLAG_CAPS_LOCK		= 1 << 1,
-	FLAG_SCROLL_LOCK	= 1 << 2,
+	FLAG_SCROLL_LOCK	= 1 << 0,
+	FLAG_NUM_LOCK		= 1 << 1,
+	FLAG_CAPS_LOCK		= 1 << 2,
 
 	/* Special flag ORed with key code to indicate release */
 	KEY_RELEASE		= 1 << 15,
@@ -58,7 +48,7 @@ static const uchar kbd_plain_xlate[] = {
 	'8',  '9',  '-',  '4',  '5',  '6',  '+',  '1',	/* 0x40 - 0x4f */
 	'2',  '3',  '0',  '.', 0xff, 0xff, 0xff, 0xff,
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,	/* 0x50 - 0x5F */
-	'\r', 0xff, 0xff
+	'\r', 0xff, '/',  '*',
 };
 
 static unsigned char kbd_shift_xlate[] = {
@@ -74,13 +64,13 @@ static unsigned char kbd_shift_xlate[] = {
 	'8', '9', '-', '4', '5', '6', '+', '1',	/* 0x40 - 0x4f */
 	'2', '3', '0', '.', 0xff, 0xff, 0xff, 0xff, 0xff,
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,	/* 0x50 - 0x5F */
-	'\r', 0xff, 0xff
+	'\r', 0xff, '/',  '*',
 };
 
 static unsigned char kbd_ctrl_xlate[] = {
 	0xff, 0x1b, '1', 0x00, '3', '4', '5', 0x1E,
 	'7', '8', '9', '0', 0x1F, '=', '\b', '\t',	/* 0x00 - 0x0f */
-	0x11, 0x17, 0x05, 0x12, 0x14, 0x18, 0x15, 0x09,
+	0x11, 0x17, 0x05, 0x12, 0x14, 0x19, 0x15, 0x09,
 	0x0f, 0x10, 0x1b, 0x1d, '\n', 0xff, 0x01, 0x13,	/* 0x10 - 0x1f */
 	0x04, 0x06, 0x08, 0x09, 0x0a, 0x0b, 0x0c, ';',
 	'\'', '~', 0x00, 0x1c, 0x1a, 0x18, 0x03, 0x16,	/* 0x20 - 0x2f */
@@ -90,11 +80,109 @@ static unsigned char kbd_ctrl_xlate[] = {
 	'8', '9', '-', '4', '5', '6', '+', '1',		/* 0x40 - 0x4f */
 	'2', '3', '0', '.', 0xff, 0xff, 0xff, 0xff,
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,	/* 0x50 - 0x5F */
-	'\r', 0xff, 0xff
+	'\r', 0xff, '/',  '*',
 };
 
+static const uchar kbd_plain_xlate_german[] = {
+	0xff, 0x1b,  '1',  '2',  '3',  '4',  '5',  '6', /* scan 00-07 */
+	 '7',  '8',  '9',  '0', 0xe1, '\'', 0x08, '\t', /* scan 08-0F */
+	 'q',  'w',  'e',  'r',  't',  'z',  'u',  'i', /* scan 10-17 */
+	 'o',  'p', 0x81,  '+', '\r', 0xff,  'a',  's', /* scan 18-1F */
+	 'd',  'f',  'g',  'h',  'j',  'k',  'l', 0x94, /* scan 20-27 */
+	0x84,  '^', 0xff,  '#',  'y',  'x',  'c',  'v', /* scan 28-2F */
+	 'b',  'n',  'm',  ',',  '.',  '-', 0xff,  '*', /* scan 30-37 */
+	 ' ',  ' ', 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 38-3F */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  '7', /* scan 40-47 */
+	 '8',  '9',  '-',  '4',  '5',  '6',  '+',  '1', /* scan 48-4F */
+	 '2',  '3',  '0',  ',', 0xff, 0xff,  '<', 0xff, /* scan 50-57 */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 58-5F */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 60-67 */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 68-6F */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 70-77 */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 78-7F */
+	'\r', 0xff,  '/',  '*',
+};
 
-int input_queue_ascii(struct input_config *config, int ch)
+static unsigned char kbd_shift_xlate_german[] = {
+	   0xff, 0x1b,  '!',  '"', 0x15,  '$',  '%',  '&', /* scan 00-07 */
+	 '/',  '(',  ')',  '=',  '?',  '`', 0x08, '\t', /* scan 08-0F */
+	 'Q',  'W',  'E',  'R',  'T',  'Z',  'U',  'I', /* scan 10-17 */
+	 'O',  'P', 0x9a,  '*', '\r', 0xff,  'A',  'S', /* scan 18-1F */
+	 'D',  'F',  'G',  'H',  'J',  'K',  'L', 0x99, /* scan 20-27 */
+	0x8e, 0xf8, 0xff, '\'',  'Y',  'X',  'C',  'V', /* scan 28-2F */
+	 'B',  'N',  'M',  ';',  ':',  '_', 0xff,  '*', /* scan 30-37 */
+	 ' ',  ' ', 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 38-3F */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  '7', /* scan 40-47 */
+	 '8',  '9',  '-',  '4',  '5',  '6',  '+',  '1', /* scan 48-4F */
+	 '2',  '3',  '0',  ',', 0xff, 0xff,  '>', 0xff, /* scan 50-57 */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 58-5F */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 60-67 */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 68-6F */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 70-77 */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 78-7F */
+	'\r', 0xff,  '/',  '*',
+};
+
+static unsigned char kbd_right_alt_xlate_german[] = {
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 00-07 */
+	 '{',  '[',  ']',  '}', '\\', 0xff, 0xff, 0xff, /* scan 08-0F */
+	 '@', 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 10-17 */
+	0xff, 0xff, 0xff,  '~', 0xff, 0xff, 0xff, 0xff, /* scan 18-1F */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 20-27 */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 28-2F */
+	0xff, 0xff, 0xe6, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 30-37 */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 38-3F */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 40-47 */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, /* scan 48-4F */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  '|', 0xff, /* scan 50-57 */
+};
+
+enum kbd_mask {
+	KBD_ENGLISH	= 1 << 0,
+	KBD_GERMAN	= 1 << 1,
+};
+
+static struct kbd_entry {
+	int kbd_mask;		/* Which languages this is for */
+	int left_keycode;	/* Left keycode to select this map */
+	int right_keycode;	/* Right keycode to select this map */
+	const uchar *xlate;	/* Ascii code for each keycode */
+	int num_entries;	/* Number of entries in xlate */
+} kbd_entry[] = {
+	{ KBD_ENGLISH, -1, -1,
+		kbd_plain_xlate, ARRAY_SIZE(kbd_plain_xlate) },
+	{ KBD_GERMAN, -1, -1,
+		kbd_plain_xlate_german, ARRAY_SIZE(kbd_plain_xlate_german) },
+	{ KBD_ENGLISH, KEY_LEFTSHIFT, KEY_RIGHTSHIFT,
+		kbd_shift_xlate, ARRAY_SIZE(kbd_shift_xlate) },
+	{ KBD_GERMAN, KEY_LEFTSHIFT, KEY_RIGHTSHIFT,
+		kbd_shift_xlate_german, ARRAY_SIZE(kbd_shift_xlate_german) },
+	{ KBD_ENGLISH | KBD_GERMAN, KEY_LEFTCTRL, KEY_RIGHTCTRL,
+		kbd_ctrl_xlate, ARRAY_SIZE(kbd_ctrl_xlate) },
+	{ KBD_GERMAN, -1, KEY_RIGHTALT,
+		kbd_right_alt_xlate_german,
+		ARRAY_SIZE(kbd_right_alt_xlate_german) },
+	{},
+};
+
+/*
+ * Scan key code to ANSI 3.64 escape sequence table.  This table is
+ * incomplete in that it does not include all possible extra keys.
+ */
+static struct {
+	int kbd_scan_code;
+	char *escape;
+} kbd_to_ansi364[] = {
+	{ KEY_UP, "\033[A"},
+	{ KEY_DOWN, "\033[B"},
+	{ KEY_RIGHT, "\033[C"},
+	{ KEY_LEFT, "\033[D"},
+};
+
+/* Maximum number of output characters that an ANSI sequence expands to */
+#define ANSI_CHAR_MAX	3
+
+static int input_queue_ascii(struct input_config *config, int ch)
 {
 	if (config->fifo_in + 1 == INPUT_BUFFER_LEN) {
 		if (!config->fifo_out)
@@ -106,6 +194,7 @@ int input_queue_ascii(struct input_config *config, int ch)
 			return -1; /* buffer full */
 		config->fifo_in++;
 	}
+	debug(" {%02x} ", ch);
 	config->fifo[config->fifo_in] = (uchar)ch;
 
 	return 0;
@@ -151,8 +240,11 @@ int input_getc(struct input_config *config)
 static struct input_key_xlate *process_modifier(struct input_config *config,
 						int key, int release)
 {
+#ifdef CONFIG_DM_KEYBOARD
+	struct udevice *dev = config->dev;
+	struct keyboard_ops *ops = keyboard_get_ops(dev);
+#endif
 	struct input_key_xlate *table;
-	int flip = -1;
 	int i;
 
 	/* Start with the main table, and see what modifiers change it */
@@ -167,6 +259,8 @@ static struct input_key_xlate *process_modifier(struct input_config *config,
 
 	/* Handle the lighted keys */
 	if (!release) {
+		int flip = -1;
+
 		switch (key) {
 		case KEY_SCROLLLOCK:
 			flip = FLAG_SCROLL_LOCK;
@@ -178,19 +272,27 @@ static struct input_key_xlate *process_modifier(struct input_config *config,
 			flip = FLAG_CAPS_LOCK;
 			break;
 		}
-	}
 
-	if (flip != -1) {
-		int leds = 0;
+		if (flip != -1) {
+			int leds = 0;
 
-		config->leds ^= flip;
-		if (config->flags & FLAG_NUM_LOCK)
-			leds |= INPUT_LED_NUM;
-		if (config->flags & FLAG_CAPS_LOCK)
-			leds |= INPUT_LED_CAPS;
-		if (config->flags & FLAG_SCROLL_LOCK)
-			leds |= INPUT_LED_SCROLL;
-		config->leds = leds;
+			config->flags ^= flip;
+			if (config->flags & FLAG_NUM_LOCK)
+				leds |= INPUT_LED_NUM;
+			if (config->flags & FLAG_CAPS_LOCK)
+				leds |= INPUT_LED_CAPS;
+			if (config->flags & FLAG_SCROLL_LOCK)
+				leds |= INPUT_LED_SCROLL;
+			config->leds = leds;
+			config->leds_changed = flip;
+
+#ifdef CONFIG_DM_KEYBOARD
+			if (ops->update_leds) {
+				if (ops->update_leds(dev, config->leds))
+					debug("Update keyboard's LED failed\n");
+			}
+#endif
+		}
 	}
 
 	return table;
@@ -289,24 +391,67 @@ static int input_check_keycodes(struct input_config *config,
 }
 
 /**
+ * Checks and converts a special key code into ANSI 3.64 escape sequence.
+ *
+ * @param config	Input state
+ * @param keycode	Key code to examine
+ * @param output_ch	Buffer to place output characters into. It should
+ *			be at least ANSI_CHAR_MAX bytes long, to allow for
+ *			an ANSI sequence.
+ * @param max_chars	Maximum number of characters to add to output_ch
+ * @return number of characters output, if the key was converted, otherwise 0.
+ *	This may be larger than max_chars, in which case the overflow
+ *	characters are not output.
+ */
+static int input_keycode_to_ansi364(struct input_config *config,
+		int keycode, char output_ch[], int max_chars)
+{
+	const char *escape;
+	int ch_count;
+	int i;
+
+	for (i = ch_count = 0; i < ARRAY_SIZE(kbd_to_ansi364); i++) {
+		if (keycode != kbd_to_ansi364[i].kbd_scan_code)
+			continue;
+		for (escape = kbd_to_ansi364[i].escape; *escape; escape++) {
+			if (ch_count < max_chars)
+				output_ch[ch_count] = *escape;
+			ch_count++;
+		}
+		return ch_count;
+	}
+
+	return 0;
+}
+
+/**
+ * Converts and queues a list of key codes in escaped ASCII string form
  * Convert a list of key codes into ASCII
  *
  * You must call input_check_keycodes() before this. It turns the keycode
- * list into a list of ASCII characters which are ready to send to the
- * input layer.
+ * list into a list of ASCII characters and sends them to the input layer.
  *
  * Characters which were seen last time do not generate fresh ASCII output.
+ * The output (calls to queue_ascii) may be longer than num_keycodes, if the
+ * keycode contains special keys that was encoded to longer escaped sequence.
  *
  * @param config	Input state
  * @param keycode	List of key codes to examine
  * @param num_keycodes	Number of key codes
+ * @param output_ch	Buffer to place output characters into. It should
+ *			be at last ANSI_CHAR_MAX * num_keycodes, to allow for
+ *			ANSI sequences.
+ * @param max_chars	Maximum number of characters to add to output_ch
  * @param same		Number of key codes which are the same
+ * @return number of characters written into output_ch, or -1 if we would
+ *	exceed max_chars chars.
  */
 static int input_keycodes_to_ascii(struct input_config *config,
-		int keycode[], int num_keycodes, char output_ch[], int same)
+		int keycode[], int num_keycodes, char output_ch[],
+		int max_chars, int same)
 {
 	struct input_key_xlate *table;
-	int ch_count;
+	int ch_count = 0;
 	int i;
 
 	table = &config->table[0];
@@ -321,27 +466,48 @@ static int input_keycodes_to_ascii(struct input_config *config,
 		}
 	}
 
-	/* now find normal keys */
-	for (i = ch_count = 0; i < num_keycodes; i++) {
+	/* Start conversion by looking for the first new keycode (by same). */
+	for (i = same; i < num_keycodes; i++) {
 		int key = keycode[i];
+		int ch;
 
-		if (key < table->num_entries && i >= same) {
-			int ch = table->xlate[key];
-
-			/* If a normal key with an ASCII value, add it! */
-			if (ch != 0xff)
+		/*
+		 * For a normal key (with an ASCII value), add it; otherwise
+		 * translate special key to escape sequence if possible.
+		 */
+		if (key < table->num_entries) {
+			ch = table->xlate[key];
+			if ((config->flags & FLAG_CAPS_LOCK) &&
+			    ch >= 'a' && ch <= 'z')
+				ch -= 'a' - 'A';
+			/* ban digit numbers if 'Num Lock' is not on */
+			if (!(config->flags & FLAG_NUM_LOCK)) {
+				if (key >= KEY_KP7 && key <= KEY_KPDOT &&
+				    key != KEY_KPMINUS && key != KEY_KPPLUS)
+					ch = 0xff;
+			}
+			if (ch_count < max_chars && ch != 0xff)
 				output_ch[ch_count++] = (uchar)ch;
+		} else {
+			ch_count += input_keycode_to_ansi364(config, key,
+						output_ch, max_chars);
 		}
+	}
+
+	if (ch_count > max_chars) {
+		debug("%s: Output char buffer overflow size=%d, need=%d\n",
+		      __func__, max_chars, ch_count);
+		return -1;
 	}
 
 	/* ok, so return keys */
 	return ch_count;
 }
 
-int input_send_keycodes(struct input_config *config,
-			int keycode[], int num_keycodes)
+static int _input_send_keycodes(struct input_config *config, int keycode[],
+				int num_keycodes, bool do_send)
 {
-	char ch[num_keycodes];
+	char ch[num_keycodes * ANSI_CHAR_MAX];
 	int count, i, same = 0;
 	int is_repeat = 0;
 	unsigned delay_ms;
@@ -356,21 +522,60 @@ int input_send_keycodes(struct input_config *config,
 		 * insert another character if we later realise that we
 		 * have missed a repeat slot.
 		 */
-		is_repeat = (int)get_timer(config->next_repeat_ms) >= 0;
+		is_repeat = config->allow_repeats || (config->repeat_rate_ms &&
+			(int)get_timer(config->next_repeat_ms) >= 0);
 		if (!is_repeat)
 			return 0;
 	}
 
 	count = input_keycodes_to_ascii(config, keycode, num_keycodes,
-					ch, is_repeat ? 0 : same);
-	for (i = 0; i < count; i++)
-		input_queue_ascii(config, ch[i]);
+					ch, sizeof(ch), is_repeat ? 0 : same);
+	if (do_send) {
+		for (i = 0; i < count; i++)
+			input_queue_ascii(config, ch[i]);
+	}
 	delay_ms = is_repeat ?
 			config->repeat_rate_ms :
 			config->repeat_delay_ms;
 
 	config->next_repeat_ms = get_timer(0) + delay_ms;
-	return 0;
+
+	return count;
+}
+
+int input_send_keycodes(struct input_config *config, int keycode[],
+			int num_keycodes)
+{
+	return _input_send_keycodes(config, keycode, num_keycodes, true);
+}
+
+int input_add_keycode(struct input_config *config, int new_keycode,
+		      bool release)
+{
+	int keycode[INPUT_MAX_MODIFIERS + 1];
+	int count, i;
+
+	/* Add the old keycodes which are not removed by this new one */
+	for (i = 0, count = 0; i < config->num_prev_keycodes; i++) {
+		int code = config->prev_keycodes[i];
+
+		if (new_keycode == code) {
+			if (release)
+				continue;
+			new_keycode = -1;
+		}
+		keycode[count++] = code;
+	}
+
+	if (!release && new_keycode != -1)
+		keycode[count++] = new_keycode;
+	debug("\ncodes for %02x/%d: ", new_keycode, release);
+	for (i = 0; i < count; i++)
+		debug("%02x ", keycode[i]);
+	debug("\n");
+
+	/* Don't output any ASCII characters if this is a key release */
+	return _input_send_keycodes(config, keycode, count, !release);
 }
 
 int input_add_table(struct input_config *config, int left_keycode,
@@ -392,22 +597,50 @@ int input_add_table(struct input_config *config, int left_keycode,
 	return 0;
 }
 
-int input_init(struct input_config *config, int leds, int repeat_delay_ms,
+void input_set_delays(struct input_config *config, int repeat_delay_ms,
 	       int repeat_rate_ms)
+{
+	config->repeat_delay_ms = repeat_delay_ms;
+	config->repeat_rate_ms = repeat_rate_ms;
+}
+
+void input_allow_repeats(struct input_config *config, bool allow_repeats)
+{
+	config->allow_repeats = allow_repeats;
+}
+
+int input_leds_changed(struct input_config *config)
+{
+	if (config->leds_changed)
+		return config->leds;
+
+	return -1;
+}
+
+int input_add_tables(struct input_config *config, bool german)
+{
+	struct kbd_entry *entry;
+	int mask;
+	int ret;
+
+	mask = german ? KBD_GERMAN : KBD_ENGLISH;
+	for (entry = kbd_entry; entry->kbd_mask; entry++) {
+		if (!(mask & entry->kbd_mask))
+			continue;
+		ret = input_add_table(config, entry->left_keycode,
+				      entry->right_keycode, entry->xlate,
+				      entry->num_entries);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+int input_init(struct input_config *config, int leds)
 {
 	memset(config, '\0', sizeof(*config));
 	config->leds = leds;
-	config->repeat_delay_ms = repeat_delay_ms;
-	config->repeat_rate_ms = repeat_rate_ms;
-	if (input_add_table(config, -1, -1,
-			kbd_plain_xlate, ARRAY_SIZE(kbd_plain_xlate)) ||
-		input_add_table(config, KEY_LEFTSHIFT, KEY_RIGHTSHIFT,
-			kbd_shift_xlate, ARRAY_SIZE(kbd_shift_xlate)) ||
-		input_add_table(config, KEY_LEFTCTRL, KEY_RIGHTCTRL,
-			kbd_ctrl_xlate, ARRAY_SIZE(kbd_ctrl_xlate))) {
-		debug("%s: Could not add modifier tables\n", __func__);
-		return -1;
-	}
 
 	return 0;
 }

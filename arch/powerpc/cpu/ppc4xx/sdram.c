@@ -8,23 +8,7 @@
  * (C) Copyright 2002-2004
  * Stefan Roese, esd gmbh germany, stefan.roese@esd-electronics.com
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -49,7 +33,7 @@ sdram_conf_t mb0cf[] = {
 sdram_conf_t mb0cf[] = CONFIG_SYS_SDRAM_TABLE;
 #endif
 
-#define N_MB0CF (sizeof(mb0cf) / sizeof(mb0cf[0]))
+#define N_MB0CF (ARRAY_SIZE(mb0cf))
 
 #ifdef CONFIG_SYS_SDRAM_CASL
 static ulong ns2clks(ulong ns)
@@ -282,7 +266,7 @@ sdram_conf_t mb0cf[] = CONFIG_SYS_SDRAM_TABLE;
 #define CONFIG_SYS_SDRAM0_CFG0		0x82000000 /* DCEN=1, PMUD=0, 64-bit */
 #endif
 
-#define N_MB0CF (sizeof(mb0cf) / sizeof(mb0cf[0]))
+#define N_MB0CF (ARRAY_SIZE(mb0cf))
 
 #define NUM_TRIES 64
 #define NUM_READS 10

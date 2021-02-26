@@ -1,52 +1,23 @@
+hostprogs-y := fdtview
 
-include $(TOPDIR)/config.mk
+fdtview-objs := crc32.o ctype.o md5.o sha1.o sha256.o image.o image-fit.o \
+		fdt.o fdt_ro.o fdt_rw.o fdt_strerror.o fdt_wip.o \
+		fdtview.o
 
-# Source files which exist outside the tools/fdtview directory
-EXT_SRC_FILES-y += lib/crc32.c
-EXT_SRC_FILES-y += lib/ctype.c
-EXT_SRC_FILES-y += lib/md5.c
-EXT_SRC_FILES-y += lib/sha1.c
-EXT_SRC_FILES-y += common/image.c
+always := $(hostprogs-y)
 
-# Source files located in the tools/fdtview directory
-SRC_FILES-y += fdtview.c
+# fw_printenv is supposed to run on the target system, which means it should be
+# built with cross tools. Although it may look weird, we only replace "HOSTCC"
+# with "CC" here for the maximum code reuse of scripts/Makefile.host.
+#HOSTCC = $(CC)
 
-# Flattened device tree objects
-LIBFDT_SRC_FILES-y += fdt.c
-LIBFDT_SRC_FILES-y += fdt_ro.c
-LIBFDT_SRC_FILES-y += fdt_rw.c
-LIBFDT_SRC_FILES-y += fdt_strerror.c
-LIBFDT_SRC_FILES-y += fdt_wip.c
-
-HOSTSRCS	+= $(addprefix $(SRCTREE)/,$(EXT_SRC_FILES-y))
-HOSTSRCS	+= $(addprefix $(SRCTREE)/tools/fdtview/,$(SRC_FILES-y))
-HOSTSRCS	+= $(addprefix $(SRCTREE)/lib/libfdt/,$(LIBFDT_SRC_FILES-y))
-
-$(warning $(HOSTSRCS))
 #
 # Use native tools and options
 # Define __KERNEL_STRICT_NAMES to prevent typedef overlaps
 #
-HOSTCPPFLAGS   = -idirafter $(SRCTREE)/include \
-		-idirafter $(OBJTREE)/include2 \
-		-idirafter $(OBJTREE)/include \
-	        -I $(SRCTREE)/libfdt \
-		-I $(SRCTREE)/tools \
+HOST_EXTRACFLAGS   += -idirafter $(srctree)/include \
+		-idirafter $(srctree)/include/u-boot \
+		-idirafter $(objtree)/include \
+	        -I$(srctree)/lib/libfdt \
+		-I$(srctree)/tools \
 		-DUSE_HOSTCC -D__KERNEL_STRICT_NAMES
-
-all :	$(obj)fdtview$(SFX)
-
-$(obj)fdtview$(SFX) : $(HOSTSRCS)
-	$(HOSTCC) $(HOSTCFLAGS_NOPED) $(HOSTLDFLAGS) -o $@ $(HOSTSRCS)
-	$(HOSTSTRIP) $@
-
-clean:
-	rm -rf $(obj)*.o $(obj)fdtview
-
-#########################################################################
-
-include $(TOPDIR)/rules.mk
-
-sinclude $(obj).depend
-
-#########################################################################

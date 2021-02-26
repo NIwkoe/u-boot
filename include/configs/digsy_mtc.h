@@ -10,23 +10,7 @@
  * (C) Copyright 2009 Semihalf
  * Optimized for digsyMTC by: Grzegorz Bernacki <gjb@semihalf.com>
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software\; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation\; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY\; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program\; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __CONFIG_H
@@ -36,8 +20,7 @@
  * High Level Configuration Options
  */
 
-#define CONFIG_MPC5xxx		1	/* This is an MPC5xxx CPU */
-#define CONFIG_MPC5200		1	/* (more precisely an MPC5200 CPU) */
+#define CONFIG_MPC5200		1	/* This is an MPC5200 CPU */
 #define CONFIG_DIGSY_MTC	1	/* ... on InterControl digsyMTC board */
 
 /*
@@ -67,8 +50,6 @@
  * 0x40000000 - 0x4fffffff - PCI Memory
  * 0x50000000 - 0x50ffffff - PCI IO Space
  */
-#define CONFIG_PCI		1
-#define CONFIG_PCI_PNP		1
 #define CONFIG_PCI_SCAN_SHOW	1
 #define CONFIG_PCI_BOOTDELAY	250
 
@@ -80,27 +61,18 @@
 #define CONFIG_PCI_IO_PHYS	CONFIG_PCI_IO_BUS
 #define CONFIG_PCI_IO_SIZE	0x01000000
 
-/*
- *  Partitions
- */
-#define CONFIG_DOS_PARTITION
 #define CONFIG_BZIP2
 
 /*
  * Video
  */
-#define CONFIG_VIDEO
 
 #ifdef CONFIG_VIDEO
 #define CONFIG_VIDEO_MB862xx
 #define CONFIG_VIDEO_MB862xx_ACCEL
 #define CONFIG_VIDEO_CORALP
-#define CONFIG_CFB_CONSOLE
 #define CONFIG_VIDEO_LOGO
 #define CONFIG_VIDEO_BMP_LOGO
-#define CONFIG_VIDEO_SW_CURSOR
-#define CONFIG_VGA_AS_SINGLE_DEVICE
-#define CONFIG_SYS_CONSOLE_IS_IN_ENV
 #define CONFIG_SPLASH_SCREEN
 #define CONFIG_VIDEO_BMP_GZIP
 #define CONFIG_SYS_VIDEO_LOGO_MAX_SIZE	(2 << 20)	/* decompressed img */
@@ -114,29 +86,17 @@
 /*
  * Command line configuration.
  */
-#include <config_cmd_default.h>
-
 #ifdef CONFIG_VIDEO
 #define CONFIG_CMD_BMP
 #endif
-#define CONFIG_CMD_CACHE
 #define CONFIG_CMD_DATE
-#define CONFIG_CMD_DHCP
 #define CONFIG_CMD_DIAG
 #define CONFIG_CMD_EEPROM
-#define CONFIG_CMD_ELF
-#define CONFIG_CMD_EXT2
-#define CONFIG_CMD_FAT
-#define CONFIG_CMD_I2C
 #define CONFIG_CMD_IDE
 #define CONFIG_CMD_IRQ
-#define CONFIG_CMD_MII
 #define CONFIG_CMD_PCI
-#define CONFIG_CMD_PING
 #define CONFIG_CMD_REGINFO
 #define CONFIG_CMD_SAVES
-#define CONFIG_CMD_SPI
-#define CONFIG_CMD_USB
 
 #if (CONFIG_SYS_TEXT_BASE == 0xFF000000)
 #define CONFIG_SYS_LOWBOOT	1
@@ -145,7 +105,6 @@
 /*
  * Autobooting
  */
-#define CONFIG_BOOTDELAY	1
 
 #undef	CONFIG_BOOTARGS
 
@@ -253,12 +212,6 @@
 #define CONFIG_BOOTCOMMAND	"run mtcb_start"
 
 /*
- * SPI configuration
- */
-#define CONFIG_HARD_SPI		1
-#define CONFIG_MPC52XX_SPI	1
-
-/*
  * I2C configuration
  */
 #define CONFIG_HARD_I2C		1
@@ -314,9 +267,6 @@
 #define CONFIG_SYS_FLASH_SIZE	0x01000000
 #define CONFIG_SYS_FLASH_ERASE_TOUT	240000
 #define CONFIG_SYS_FLASH_WRITE_TOUT	500
-
-#define CONFIG_OF_LIBFDT  1
-#define CONFIG_OF_BOARD_SETUP	1
 
 #define OF_CPU			"PowerPC,5200@0"
 #define OF_SOC			"soc5200@f0000000"
@@ -409,16 +359,8 @@
 #define CONFIG_SYS_LONGHELP
 #define CONFIG_AUTO_COMPLETE	1
 #define CONFIG_CMDLINE_EDITING	1
-#define CONFIG_SYS_PROMPT	"=> "
-#define CONFIG_SYS_HUSH_PARSER
 
-#define CONFIG_AUTOBOOT_KEYED
-#define CONFIG_AUTOBOOT_PROMPT "autoboot in %d seconds\n", bootdelay
-#define CONFIG_AUTOBOOT_DELAY_STR	" "
-
-#define CONFIG_LOOPW		1
 #define CONFIG_MX_CYCLIC	1
-#define CONFIG_ZERO_BOOTDELAY_CHECK
 
 #define CONFIG_SYS_CBSIZE		1024
 #define CONFIG_SYS_PBSIZE (CONFIG_SYS_CBSIZE+sizeof(CONFIG_SYS_PROMPT)+16)
@@ -431,8 +373,6 @@
 #define CONFIG_SYS_MEMTEST_END		0x019fffff
 
 #define CONFIG_SYS_LOAD_ADDR		0x00100000
-
-#define CONFIG_SYS_HZ			1000
 
 /*
  * Various low-level settings
@@ -477,7 +417,6 @@
  */
 #define CONFIG_USB_OHCI_NEW
 #define CONFIG_SYS_OHCI_BE_CONTROLLER
-#define CONFIG_USB_STORAGE
 
 #define CONFIG_USB_CLOCK	0x00013333
 #define CONFIG_USB_CONFIG	0x00002000

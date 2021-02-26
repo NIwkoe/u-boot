@@ -1,287 +1,484 @@
 /*
+ * (C) Copyright 2012-2013, Xilinx, Michal Simek
+ *
  * (C) Copyright 2012
  * Joe Hershberger <joe.hershberger@ni.com>
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
- *
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
+#include <console.h>
 #include <asm/io.h>
+#include <fs.h>
 #include <zynqpl.h>
+#include <linux/sizes.h>
+#include <asm/arch/hardware.h>
+#include <asm/arch/sys_proto.h>
+
+#define DEVCFG_CTRL_PCFG_PROG_B		0x40000000
+#define DEVCFG_ISR_FATAL_ERROR_MASK	0x00740040
+#define DEVCFG_ISR_ERROR_FLAGS_MASK	0x00340840
+#define DEVCFG_ISR_RX_FIFO_OV		0x00040000
+#define DEVCFG_ISR_DMA_DONE		0x00002000
+#define DEVCFG_ISR_PCFG_DONE		0x00000004
+#define DEVCFG_STATUS_DMA_CMD_Q_F	0x80000000
+#define DEVCFG_STATUS_DMA_CMD_Q_E	0x40000000
+#define DEVCFG_STATUS_DMA_DONE_CNT_MASK	0x30000000
+#define DEVCFG_STATUS_PCFG_INIT		0x00000010
+#define DEVCFG_MCTRL_PCAP_LPBK		0x00000010
+#define DEVCFG_MCTRL_RFIFO_FLUSH	0x00000002
+#define DEVCFG_MCTRL_WFIFO_FLUSH	0x00000001
 
 #ifndef CONFIG_SYS_FPGA_WAIT
 #define CONFIG_SYS_FPGA_WAIT CONFIG_SYS_HZ/100	/* 10 ms */
 #endif
 
 #ifndef CONFIG_SYS_FPGA_PROG_TIME
-#define CONFIG_SYS_FPGA_PROG_TIME CONFIG_SYS_HZ	/* 1 s */
+#define CONFIG_SYS_FPGA_PROG_TIME	(CONFIG_SYS_HZ * 4) /* 4 s */
 #endif
 
-#define SLCR_BASEADDR 0xF8000000
-#define SLCR_LOCK (SLCR_BASEADDR + 0x04)
-#define SLCR_LOCK_VALUE 0x767B
-#define SLCR_UNLOCK (SLCR_BASEADDR + 0x08)
-#define SLCR_UNLOCK_VALUE 0xDF0D
-#define SLCR_FPGA_RST_CTRL (SLCR_BASEADDR + 0x240)
-#define SLCR_LVL_SHFTR_EN (SLCR_BASEADDR + 0x900)
-
-#define SLCR_FPGA_RST_CTRL_DONT_MODIFY_MASK	0x01030000
-#define SLCR_FPGA_RST_CTRL_OUT_RST_MASK		0x0000000F
-#define SLCR_FPGA_RST_CTRL_CLEAR_RST_CTRL	0x00000000
-
-#define SLCR_LVL_SHFTR_EN_DONT_MODIFY_MASK	0x00000010
-#define SLCR_LVL_SHFTR_EN_DISABLE_MASK		0x00000000
-#define SLCR_LVL_SHFTR_EN_PRE_DOWNLOAD_MASK	0x0000000A
-#define SLCR_LVL_SHFTR_EN_POST_DOWNLOAD_MASK	0x0000000F
-
-#define DEVCFG_BASEADDR 0xF8007000
-#define DEVCFG_CTRL (DEVCFG_BASEADDR + 0x00)
-#define DEVCFG_CTRL_PCFG_PROG_B 0x40000000
-#define DEVCFG_LOCK (DEVCFG_BASEADDR + 0x04)
-#define DEVCFG_CFG (DEVCFG_BASEADDR + 0x08)
-#define DEVCFG_ISR (DEVCFG_BASEADDR + 0x0C)
-#define DEVCFG_ISR_FATAL_ERROR_MASK 0x00740040
-#define DEVCFG_ISR_ERROR_FLAGS_MASK 0x00340840
-#define DEVCFG_ISR_RX_FIFO_OV 0x00040000
-#define DEVCFG_ISR_DMA_DONE 0x00002000
-#define DEVCFG_ISR_PCFG_DONE 0x00000004
-#define DEVCFG_STATUS (DEVCFG_BASEADDR + 0x14)
-#define DEVCFG_STATUS_DMA_CMD_Q_F 0x80000000
-#define DEVCFG_STATUS_DMA_CMD_Q_E 0x40000000
-#define DEVCFG_STATUS_DMA_DONE_CNT_MASK 0x30000000
-#define DEVCFG_STATUS_PCFG_INIT 0x00000010
-#define DEVCFG_DMA_SRC_ADDR (DEVCFG_BASEADDR + 0x18)
-#define DEVCFG_DMA_DST_ADDR (DEVCFG_BASEADDR + 0x1C)
-#define DEVCFG_DMA_SRC_LEN (DEVCFG_BASEADDR + 0x20)
-#define DEVCFG_DMA_DEST_LEN (DEVCFG_BASEADDR + 0x24)
-#define DEVCFG_MCTRL (DEVCFG_BASEADDR + 0x80)
-#define DEVCFG_MCTRL_RFIFO_FLUSH 0x00000002
-#define DEVCFG_MCTRL_WFIFO_FLUSH 0x00000001
-#define DEVCFG_DEBUG_XFER_WRITE_COUNT (DEVCFG_BASEADDR + 0x88)
-#define DEVCFG_DEBUG_XFER_READ_COUNT (DEVCFG_BASEADDR + 0x8C)
-
-/* ------------------------------------------------------------------------- */
-/* Zynq Implementation */
-
-int zynq_info(Xilinx_desc *desc)
-{
-	return FPGA_SUCCESS;
-}
+#define DUMMY_WORD	0xffffffff
 
 /* Xilinx binary format header */
-const u32 bin_format[] = {
-	0xffffffff, /* Dummy words */
-	0xffffffff,
-	0xffffffff,
-	0xffffffff,
-	0xffffffff,
-	0xffffffff,
-	0xffffffff,
-	0xffffffff,
+static const u32 bin_format[] = {
+	DUMMY_WORD, /* Dummy words */
+	DUMMY_WORD,
+	DUMMY_WORD,
+	DUMMY_WORD,
+	DUMMY_WORD,
+	DUMMY_WORD,
+	DUMMY_WORD,
+	DUMMY_WORD,
 	0x000000bb, /* Sync word */
 	0x11220044, /* Sync word */
-	0xffffffff,
-	0xffffffff,
+	DUMMY_WORD,
+	DUMMY_WORD,
 	0xaa995566, /* Sync word */
 };
 
-int zynq_load(Xilinx_desc *desc, const void *buf, size_t bsize)
-{
-	unsigned long ts;		/* timestamp */
-	u32 control;
-	u32 isr_status;
-	u32 status;
-	u32 fpgarstctrl;
-	u32 lvlshftren;
-	const u32 *test = buf;
-	int i;
+#define SWAP_NO		1
+#define SWAP_DONE	2
 
-	/* Check bitstream size */
-	if (bsize != desc->size) {
-		printf("Error: File size is wrong - should be %x.\n",
-								desc->size);
-		return FPGA_FAIL;
+/*
+ * Load the whole word from unaligned buffer
+ * Keep in your mind that it is byte loading on little-endian system
+ */
+static u32 load_word(const void *buf, u32 swap)
+{
+	u32 word = 0;
+	u8 *bitc = (u8 *)buf;
+	int p;
+
+	if (swap == SWAP_NO) {
+		for (p = 0; p < 4; p++) {
+			word <<= 8;
+			word |= bitc[p];
+		}
+	} else {
+		for (p = 3; p >= 0; p--) {
+			word <<= 8;
+			word |= bitc[p];
+		}
 	}
+
+	return word;
+}
+
+static u32 check_header(const void *buf)
+{
+	u32 i, pattern;
+	int swap = SWAP_NO;
+	u32 *test = (u32 *)buf;
+
+	debug("%s: Let's check bitstream header\n", __func__);
 
 	/* Checking that passing bin is not a bitstream */
 	for (i = 0; i < ARRAY_SIZE(bin_format); i++) {
-		if (test[i] != bin_format[i]) {
-			puts("Error: File not in binary format.\n");
-			return FPGA_FAIL;
+		pattern = load_word(&test[i], swap);
+
+		/*
+		 * Bitstreams in binary format are swapped
+		 * compare to regular bistream.
+		 * Do not swap dummy word but if swap is done assume
+		 * that parsing buffer is binary format
+		 */
+		if ((__swab32(pattern) != DUMMY_WORD) &&
+		    (__swab32(pattern) == bin_format[i])) {
+			pattern = __swab32(pattern);
+			swap = SWAP_DONE;
+			debug("%s: data swapped - let's swap\n", __func__);
+		}
+
+		debug("%s: %d/%x: pattern %x/%x bin_format\n", __func__, i,
+		      (u32)&test[i], pattern, bin_format[i]);
+		if (pattern != bin_format[i]) {
+			debug("%s: Bitstream is not recognized\n", __func__);
+			return 0;
 		}
 	}
+	debug("%s: Found bitstream header at %x %s swapinng\n", __func__,
+	      (u32)buf, swap == SWAP_NO ? "without" : "with");
 
-	out_le32(SLCR_UNLOCK, SLCR_UNLOCK_VALUE);
+	return swap;
+}
 
-	/* Disable AXI interface */
-	fpgarstctrl = in_le32(SLCR_FPGA_RST_CTRL) &
-		SLCR_FPGA_RST_CTRL_DONT_MODIFY_MASK;
-	out_le32(SLCR_FPGA_RST_CTRL,
-		SLCR_FPGA_RST_CTRL_OUT_RST_MASK | fpgarstctrl);
+static void *check_data(u8 *buf, size_t bsize, u32 *swap)
+{
+	u32 word, p = 0; /* possition */
 
-	/* Set Level Shifters DT618760*/
-	lvlshftren = in_le32(SLCR_LVL_SHFTR_EN) &
-		SLCR_LVL_SHFTR_EN_DONT_MODIFY_MASK;
-	out_le32(SLCR_LVL_SHFTR_EN,
-		SLCR_LVL_SHFTR_EN_DISABLE_MASK | lvlshftren);
-	out_le32(SLCR_LVL_SHFTR_EN,
-		SLCR_LVL_SHFTR_EN_PRE_DOWNLOAD_MASK | lvlshftren);
+	/* Because buf doesn't need to be aligned let's read it by chars */
+	for (p = 0; p < bsize; p++) {
+		word = load_word(&buf[p], SWAP_NO);
+		debug("%s: word %x %x/%x\n", __func__, word, p, (u32)&buf[p]);
 
-	/* Setting PCFG_PROG_B signal to high */
-	control = in_le32(DEVCFG_CTRL);
-	out_le32(DEVCFG_CTRL, control | DEVCFG_CTRL_PCFG_PROG_B);
-	/* Setting PCFG_PROG_B signal to low */
-	out_le32(DEVCFG_CTRL, control & ~DEVCFG_CTRL_PCFG_PROG_B);
-
-	/* Polling the PCAP_INIT status for Reset */
-	ts = get_timer(0);
-	while (in_le32(DEVCFG_STATUS) & DEVCFG_STATUS_PCFG_INIT) {
-		if (get_timer(ts) > CONFIG_SYS_FPGA_WAIT) {
-			puts("Error: Timeout waiting for INIT to clear.\n");
-			return FPGA_FAIL;
+		/* Find the first bitstream dummy word */
+		if (word == DUMMY_WORD) {
+			debug("%s: Found dummy word at position %x/%x\n",
+			      __func__, p, (u32)&buf[p]);
+			*swap = check_header(&buf[p]);
+			if (*swap) {
+				/* FIXME add full bitstream checking here */
+				return &buf[p];
+			}
 		}
+		/* Loop can be huge - support CTRL + C */
+		if (ctrlc())
+			return NULL;
 	}
+	return NULL;
+}
 
-	/* Setting PCFG_PROG_B signal to high */
-	out_le32(DEVCFG_CTRL, control | DEVCFG_CTRL_PCFG_PROG_B);
+static int zynq_dma_transfer(u32 srcbuf, u32 srclen, u32 dstbuf, u32 dstlen)
+{
+	unsigned long ts;
+	u32 isr_status;
 
-	/* Polling the PCAP_INIT status for Set */
-	ts = get_timer(0);
-	while (!(in_le32(DEVCFG_STATUS) & DEVCFG_STATUS_PCFG_INIT)) {
-		if (get_timer(ts) > CONFIG_SYS_FPGA_WAIT) {
-			puts("Error: Timeout waiting for INIT to set.\n");
-			return FPGA_FAIL;
-		}
-	}
+	/* Set up the transfer */
+	writel((u32)srcbuf, &devcfg_base->dma_src_addr);
+	writel(dstbuf, &devcfg_base->dma_dst_addr);
+	writel(srclen, &devcfg_base->dma_src_len);
+	writel(dstlen, &devcfg_base->dma_dst_len);
 
-	out_le32(SLCR_LOCK, SLCR_LOCK_VALUE);
-
-	isr_status = in_le32(DEVCFG_ISR);
-
-	/* Clear it all, so if Boot ROM comes back, it can proceed */
-	out_le32(DEVCFG_ISR, 0xFFFFFFFF);
-
-	if (isr_status & DEVCFG_ISR_FATAL_ERROR_MASK) {
-		debug("Fatal errors in PCAP 0x%X\n", isr_status);
-
-		/* If RX FIFO overflow, need to flush RX FIFO first */
-		if (isr_status & DEVCFG_ISR_RX_FIFO_OV) {
-			out_le32(DEVCFG_MCTRL, DEVCFG_MCTRL_RFIFO_FLUSH);
-			out_le32(DEVCFG_ISR, 0xFFFFFFFF);
-		}
-		return FPGA_FAIL;
-	}
-
-	status = in_le32(DEVCFG_STATUS);
-
-	debug("status = 0x%08X\n", status);
-
-	if (status & DEVCFG_STATUS_DMA_CMD_Q_F) {
-		debug("Error: device busy\n");
-		return FPGA_FAIL;
-	}
-
-	debug("device ready\n");
-
-	if (!(status & DEVCFG_STATUS_DMA_CMD_Q_E)) {
-		if (!(in_le32(DEVCFG_ISR) & DEVCFG_ISR_DMA_DONE)) {
-			/* error state, transfer cannot occur */
-			debug("isr indicates error\n");
-			return FPGA_FAIL;
-		} else {
-			/* clear out the status */
-			out_le32(DEVCFG_ISR, DEVCFG_ISR_DMA_DONE);
-		}
-	}
-
-	if (status & DEVCFG_STATUS_DMA_DONE_CNT_MASK) {
-		/* Clear the count of completed DMA transfers */
-		out_le32(DEVCFG_STATUS, DEVCFG_STATUS_DMA_DONE_CNT_MASK);
-	}
-
-	debug("Source = 0x%08X\n", (u32)buf);
-	debug("Size = %zu\n", bsize);
-
-	/* set up the transfer */
-	out_le32(DEVCFG_DMA_SRC_ADDR, (u32)buf | 1);
-	out_le32(DEVCFG_DMA_DST_ADDR, 0xFFFFFFFF);
-	out_le32(DEVCFG_DMA_SRC_LEN, bsize >> 2);
-	out_le32(DEVCFG_DMA_DEST_LEN, 0);
-
-	isr_status = in_le32(DEVCFG_ISR);
+	isr_status = readl(&devcfg_base->int_sts);
 
 	/* Polling the PCAP_INIT status for Set */
 	ts = get_timer(0);
 	while (!(isr_status & DEVCFG_ISR_DMA_DONE)) {
 		if (isr_status & DEVCFG_ISR_ERROR_FLAGS_MASK) {
-			debug("Error: isr = 0x%08X\n", isr_status);
-			debug("Write count = 0x%08X\n",
-				in_le32(DEVCFG_DEBUG_XFER_WRITE_COUNT));
-			debug("Read count = 0x%08X\n",
-				in_le32(DEVCFG_DEBUG_XFER_READ_COUNT));
+			debug("%s: Error: isr = 0x%08X\n", __func__,
+			      isr_status);
+			debug("%s: Write count = 0x%08X\n", __func__,
+			      readl(&devcfg_base->write_count));
+			debug("%s: Read count = 0x%08X\n", __func__,
+			      readl(&devcfg_base->read_count));
 
 			return FPGA_FAIL;
 		}
 		if (get_timer(ts) > CONFIG_SYS_FPGA_PROG_TIME) {
-			puts("Error: Timeout waiting for DMA to complete.\n");
+			printf("%s: Timeout wait for DMA to complete\n",
+			       __func__);
 			return FPGA_FAIL;
 		}
-		isr_status = in_le32(DEVCFG_ISR);
+		isr_status = readl(&devcfg_base->int_sts);
 	}
 
-	debug("DMA transfer is done\n");
+	debug("%s: DMA transfer is done\n", __func__);
+
+	/* Clear out the DMA status */
+	writel(DEVCFG_ISR_DMA_DONE, &devcfg_base->int_sts);
+
+	return FPGA_SUCCESS;
+}
+
+static int zynq_dma_xfer_init(bitstream_type bstype)
+{
+	u32 status, control, isr_status;
+	unsigned long ts;
+
+	/* Clear loopback bit */
+	clrbits_le32(&devcfg_base->mctrl, DEVCFG_MCTRL_PCAP_LPBK);
+
+	if (bstype != BIT_PARTIAL) {
+		zynq_slcr_devcfg_disable();
+
+		/* Setting PCFG_PROG_B signal to high */
+		control = readl(&devcfg_base->ctrl);
+		writel(control | DEVCFG_CTRL_PCFG_PROG_B, &devcfg_base->ctrl);
+		/* Setting PCFG_PROG_B signal to low */
+		writel(control & ~DEVCFG_CTRL_PCFG_PROG_B, &devcfg_base->ctrl);
+
+		/* Polling the PCAP_INIT status for Reset */
+		ts = get_timer(0);
+		while (readl(&devcfg_base->status) & DEVCFG_STATUS_PCFG_INIT) {
+			if (get_timer(ts) > CONFIG_SYS_FPGA_WAIT) {
+				printf("%s: Timeout wait for INIT to clear\n",
+				       __func__);
+				return FPGA_FAIL;
+			}
+		}
+
+		/* Setting PCFG_PROG_B signal to high */
+		writel(control | DEVCFG_CTRL_PCFG_PROG_B, &devcfg_base->ctrl);
+
+		/* Polling the PCAP_INIT status for Set */
+		ts = get_timer(0);
+		while (!(readl(&devcfg_base->status) &
+			DEVCFG_STATUS_PCFG_INIT)) {
+			if (get_timer(ts) > CONFIG_SYS_FPGA_WAIT) {
+				printf("%s: Timeout wait for INIT to set\n",
+				       __func__);
+				return FPGA_FAIL;
+			}
+		}
+	}
+
+	isr_status = readl(&devcfg_base->int_sts);
+
+	/* Clear it all, so if Boot ROM comes back, it can proceed */
+	writel(0xFFFFFFFF, &devcfg_base->int_sts);
+
+	if (isr_status & DEVCFG_ISR_FATAL_ERROR_MASK) {
+		debug("%s: Fatal errors in PCAP 0x%X\n", __func__, isr_status);
+
+		/* If RX FIFO overflow, need to flush RX FIFO first */
+		if (isr_status & DEVCFG_ISR_RX_FIFO_OV) {
+			writel(DEVCFG_MCTRL_RFIFO_FLUSH, &devcfg_base->mctrl);
+			writel(0xFFFFFFFF, &devcfg_base->int_sts);
+		}
+		return FPGA_FAIL;
+	}
+
+	status = readl(&devcfg_base->status);
+
+	debug("%s: Status = 0x%08X\n", __func__, status);
+
+	if (status & DEVCFG_STATUS_DMA_CMD_Q_F) {
+		debug("%s: Error: device busy\n", __func__);
+		return FPGA_FAIL;
+	}
+
+	debug("%s: Device ready\n", __func__);
+
+	if (!(status & DEVCFG_STATUS_DMA_CMD_Q_E)) {
+		if (!(readl(&devcfg_base->int_sts) & DEVCFG_ISR_DMA_DONE)) {
+			/* Error state, transfer cannot occur */
+			debug("%s: ISR indicates error\n", __func__);
+			return FPGA_FAIL;
+		} else {
+			/* Clear out the status */
+			writel(DEVCFG_ISR_DMA_DONE, &devcfg_base->int_sts);
+		}
+	}
+
+	if (status & DEVCFG_STATUS_DMA_DONE_CNT_MASK) {
+		/* Clear the count of completed DMA transfers */
+		writel(DEVCFG_STATUS_DMA_DONE_CNT_MASK, &devcfg_base->status);
+	}
+
+	return FPGA_SUCCESS;
+}
+
+static u32 *zynq_align_dma_buffer(u32 *buf, u32 len, u32 swap)
+{
+	u32 *new_buf;
+	u32 i;
+
+	if ((u32)buf != ALIGN((u32)buf, ARCH_DMA_MINALIGN)) {
+		new_buf = (u32 *)ALIGN((u32)buf, ARCH_DMA_MINALIGN);
+
+		/*
+		 * This might be dangerous but permits to flash if
+		 * ARCH_DMA_MINALIGN is greater than header size
+		 */
+		if (new_buf > buf) {
+			debug("%s: Aligned buffer is after buffer start\n",
+			      __func__);
+			new_buf -= ARCH_DMA_MINALIGN;
+		}
+		printf("%s: Align buffer at %x to %x(swap %d)\n", __func__,
+		       (u32)buf, (u32)new_buf, swap);
+
+		for (i = 0; i < (len/4); i++)
+			new_buf[i] = load_word(&buf[i], swap);
+
+		buf = new_buf;
+	} else if (swap != SWAP_DONE) {
+		/* For bitstream which are aligned */
+		u32 *new_buf = (u32 *)buf;
+
+		printf("%s: Bitstream is not swapped(%d) - swap it\n", __func__,
+		       swap);
+
+		for (i = 0; i < (len/4); i++)
+			new_buf[i] = load_word(&buf[i], swap);
+	}
+
+	return buf;
+}
+
+static int zynq_validate_bitstream(xilinx_desc *desc, const void *buf,
+				   size_t bsize, u32 blocksize, u32 *swap,
+				   bitstream_type *bstype)
+{
+	u32 *buf_start;
+	u32 diff;
+
+	buf_start = check_data((u8 *)buf, blocksize, swap);
+
+	if (!buf_start)
+		return FPGA_FAIL;
+
+	/* Check if data is postpone from start */
+	diff = (u32)buf_start - (u32)buf;
+	if (diff) {
+		printf("%s: Bitstream is not validated yet (diff %x)\n",
+		       __func__, diff);
+		return FPGA_FAIL;
+	}
+
+	if ((u32)buf < SZ_1M) {
+		printf("%s: Bitstream has to be placed up to 1MB (%x)\n",
+		       __func__, (u32)buf);
+		return FPGA_FAIL;
+	}
+
+	if (zynq_dma_xfer_init(*bstype))
+		return FPGA_FAIL;
+
+	return 0;
+}
+
+static int zynq_load(xilinx_desc *desc, const void *buf, size_t bsize,
+		     bitstream_type bstype)
+{
+	unsigned long ts; /* Timestamp */
+	u32 isr_status, swap;
+
+	/*
+	 * send bsize inplace of blocksize as it was not a bitstream
+	 * in chunks
+	 */
+	if (zynq_validate_bitstream(desc, buf, bsize, bsize, &swap,
+				    &bstype))
+		return FPGA_FAIL;
+
+	buf = zynq_align_dma_buffer((u32 *)buf, bsize, swap);
+
+	debug("%s: Source = 0x%08X\n", __func__, (u32)buf);
+	debug("%s: Size = %zu\n", __func__, bsize);
+
+	/* flush(clean & invalidate) d-cache range buf */
+	flush_dcache_range((u32)buf, (u32)buf +
+			   roundup(bsize, ARCH_DMA_MINALIGN));
+
+	if (zynq_dma_transfer((u32)buf | 1, bsize >> 2, 0xffffffff, 0))
+		return FPGA_FAIL;
+
+	isr_status = readl(&devcfg_base->int_sts);
+	/* Check FPGA configuration completion */
+	ts = get_timer(0);
+	while (!(isr_status & DEVCFG_ISR_PCFG_DONE)) {
+		if (get_timer(ts) > CONFIG_SYS_FPGA_WAIT) {
+			printf("%s: Timeout wait for FPGA to config\n",
+			       __func__);
+			return FPGA_FAIL;
+		}
+		isr_status = readl(&devcfg_base->int_sts);
+	}
+
+	debug("%s: FPGA config done\n", __func__);
+
+	if (bstype != BIT_PARTIAL)
+		zynq_slcr_devcfg_enable();
+
+	return FPGA_SUCCESS;
+}
+
+#if defined(CONFIG_CMD_FPGA_LOADFS)
+static int zynq_loadfs(xilinx_desc *desc, const void *buf, size_t bsize,
+		       fpga_fs_info *fsinfo)
+{
+	unsigned long ts; /* Timestamp */
+	u32 isr_status, swap;
+	u32 partialbit = 0;
+	loff_t blocksize, actread;
+	loff_t pos = 0;
+	int fstype;
+	char *interface, *dev_part, *filename;
+
+	blocksize = fsinfo->blocksize;
+	interface = fsinfo->interface;
+	dev_part = fsinfo->dev_part;
+	filename = fsinfo->filename;
+	fstype = fsinfo->fstype;
+
+	if (fs_set_blk_dev(interface, dev_part, fstype))
+		return FPGA_FAIL;
+
+	if (fs_read(filename, (u32) buf, pos, blocksize, &actread) < 0)
+		return FPGA_FAIL;
+
+	if (zynq_validate_bitstream(desc, buf, bsize, blocksize, &swap,
+				    &partialbit))
+		return FPGA_FAIL;
+
+	dcache_disable();
+
+	do {
+		buf = zynq_align_dma_buffer((u32 *)buf, blocksize, swap);
+
+		if (zynq_dma_transfer((u32)buf | 1, blocksize >> 2,
+				      0xffffffff, 0))
+			return FPGA_FAIL;
+
+		bsize -= blocksize;
+		pos   += blocksize;
+
+		if (fs_set_blk_dev(interface, dev_part, fstype))
+			return FPGA_FAIL;
+
+		if (bsize > blocksize) {
+			if (fs_read(filename, (u32) buf, pos, blocksize, &actread) < 0)
+				return FPGA_FAIL;
+		} else {
+			if (fs_read(filename, (u32) buf, pos, bsize, &actread) < 0)
+				return FPGA_FAIL;
+		}
+	} while (bsize > blocksize);
+
+	buf = zynq_align_dma_buffer((u32 *)buf, blocksize, swap);
+
+	if (zynq_dma_transfer((u32)buf | 1, bsize >> 2, 0xffffffff, 0))
+		return FPGA_FAIL;
+
+	dcache_enable();
+
+	isr_status = readl(&devcfg_base->int_sts);
 
 	/* Check FPGA configuration completion */
 	ts = get_timer(0);
 	while (!(isr_status & DEVCFG_ISR_PCFG_DONE)) {
 		if (get_timer(ts) > CONFIG_SYS_FPGA_WAIT) {
-			puts("Error: Timeout waiting for FPGA to config.\n");
+			printf("%s: Timeout wait for FPGA to config\n",
+			       __func__);
 			return FPGA_FAIL;
 		}
-		isr_status = in_le32(DEVCFG_ISR);
+		isr_status = readl(&devcfg_base->int_sts);
 	}
 
-	debug("FPGA config done\n");
+	debug("%s: FPGA config done\n", __func__);
 
-	/* clear out the DMA status */
-	out_le32(DEVCFG_ISR, DEVCFG_ISR_DMA_DONE);
-
-	out_le32(SLCR_UNLOCK, SLCR_UNLOCK_VALUE);
-
-	/* Set Level Shifters DT618760*/
-	lvlshftren = in_le32(SLCR_LVL_SHFTR_EN) &
-		SLCR_LVL_SHFTR_EN_DONT_MODIFY_MASK;
-	out_le32(SLCR_LVL_SHFTR_EN,
-		SLCR_LVL_SHFTR_EN_POST_DOWNLOAD_MASK | lvlshftren);
-
-	/* Enable AXI interface */
-	fpgarstctrl = in_le32(SLCR_FPGA_RST_CTRL) &
-		SLCR_FPGA_RST_CTRL_DONT_MODIFY_MASK;
-	out_le32(SLCR_FPGA_RST_CTRL, SLCR_FPGA_RST_CTRL_CLEAR_RST_CTRL | fpgarstctrl);
-
-	out_le32(SLCR_LOCK, SLCR_LOCK_VALUE);
+	if (!partialbit)
+		zynq_slcr_devcfg_enable();
 
 	return FPGA_SUCCESS;
 }
+#endif
 
-int zynq_dump(Xilinx_desc *desc, const void *buf, size_t bsize)
-{
-	return FPGA_FAIL;
-}
+struct xilinx_fpga_op zynq_op = {
+	.load = zynq_load,
+#if defined(CONFIG_CMD_FPGA_LOADFS)
+	.loadfs = zynq_loadfs,
+#endif
+};

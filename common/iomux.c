@@ -2,30 +2,15 @@
  * (C) Copyright 2008
  * Gary Jennejohn, DENX Software Engineering GmbH, garyj@denx.de.
  *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
- * MA 02111-1307 USA
+ * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
+#include <console.h>
 #include <serial.h>
 #include <malloc.h>
 
-#ifdef CONFIG_CONSOLE_MUX
+#if CONFIG_IS_ENABLED(CONSOLE_MUX)
 void iomux_printdevs(const int console)
 {
 	int i;
@@ -135,18 +120,6 @@ int iomux_doenv(const int console, const char *arg)
 		 */
 		if (console_assign(console, start[j]) < 0)
 			continue;
-#ifdef CONFIG_SERIAL_MULTI
-		/*
-		 * This was taken from common/cmd_nvedit.c.
-		 * This will never work because serial_assign() returns
-		 * 1 upon error, not -1.
-		 * This would almost always return an error anyway because
-		 * serial_assign() expects the name of a serial device, like
-		 * serial_smc, but the user generally only wants to set serial.
-		 */
-		if (serial_assign(start[j]) < 0)
-			continue;
-#endif
 		cons_set[cs_idx++] = dev;
 	}
 	free(console_args);
@@ -172,4 +145,4 @@ int iomux_doenv(const int console, const char *arg)
 	free(cons_set);
 	return 0;
 }
-#endif /* CONFIG_CONSOLE_MUX */
+#endif /* CONSOLE_MUX */
